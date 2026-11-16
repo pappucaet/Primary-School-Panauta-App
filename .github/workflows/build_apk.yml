@@ -16,7 +16,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache wget curl
+          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache
 
       - name: Install Buildozer & P4A
         run: |
@@ -24,8 +24,6 @@ jobs:
           pip install --upgrade buildozer python-for-android cython==0.29.36 virtualenv
 
       - name: Build Android APK
-        env:
-          P4A_DOWNLOAD_COMMAND: "wget --user-agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36' -O"
         run: |
           yes | buildozer -v android debug
 
