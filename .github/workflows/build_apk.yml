@@ -23,10 +23,9 @@ jobs:
           pip install --upgrade pip
           pip install buildozer python-for-android cython==0.29.36 virtualenv
 
-      - name: Patch 403 Forbidden Links & User-Agent
+      - name: Patch User-Agent Globally
         run: |
-          python -c "import site, os; sp = site.getsitepackages(); open(os.path.join(sp, 'sitecustomize.py'), 'w').write('import urllib.request\nopener = urllib.request.build_opener()\nopener.addheaders = [(\"User-agent\", \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\")]\nurllib.request.install_opener(opener)\n')"
-          python -c "import site, os; p4a = os.path.join(site.getsitepackages(), 'pythonforandroid', 'recipes'); [open(os.path.join(r, f), 'w').write(open(os.path.join(r, f)).read().replace('download.savannah.nongnu.org/releases/freetype', 'sourceforge.net/projects/freetype/files/freetype2/2.13.2').replace('http://', 'https://')) for r, d, files in os.walk(p4a) for f in files if f == '__init__.py']"
+          python -c "import site, os; sp = site.getsitepackages()[0]; open(os.path.join(sp, 'sitecustomize.py'), 'w').write('import urllib.request\nopener = urllib.request.build_opener()\nopener.addheaders = [(\"User-agent\", \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\")]\nurllib.request.install_opener(opener)\n')"
 
       - name: Build Android APK
         run: |
