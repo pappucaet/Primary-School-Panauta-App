@@ -18,12 +18,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache wget curl
 
-      - name: Install Latest Buildozer & P4A (Fix 403 Links)
+      - name: Install Buildozer & P4A
         run: |
           pip install --upgrade pip
-          pip install git+https://github.com
-          pip install git+https://github.com
-          pip install cython==0.29.36 virtualenv
+          pip install --upgrade buildozer python-for-android cython==0.29.36 virtualenv
 
       - name: Build Android APK
         env:
