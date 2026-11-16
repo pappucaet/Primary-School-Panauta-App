@@ -158,7 +158,183 @@ from kivy.uix.spinner import Spinner
 from kivy.clock import Clock
 import os
 import shutil
-import pandas as pd
+# 👑 [हल्का Excel इंजन - बिना भारी Pandas के मोबाइल ऐप चलाने के लिए]
+try:
+    import pandas as pd
+except ImportError:
+    import openpyxl
+    import csv
+
+    class SimpleSeries:
+        def __init__(self, data):
+            self.data = list(data)
+        def astype(self, t):
+            return SimpleSeries([str(x) if x is not None else "" for x in self.data])
+        @property
+        def str(self):
+            return self
+        def strip(self):
+            return SimpleSeries([str(x).strip() for x in self.data])
+        def replace(self, old, new, regex=False, case=True):
+            import re
+            res = []
+            for x in self.data:
+                s = str(x)
+                if regex:
+                    s = re.sub(old, new, s, flags=0 if case else re.IGNORECASE)
+                else:
+                    s = s.replace(old, new) if case else re.sub(re.escape(old), new, s, flags=re.IGNORECASE)
+                res.append(s)
+            return SimpleSeries(res)
+        def isin(self, values):
+            vals = set(values)
+            return [x in vals for x in self.data]
+        def __iter__(self):
+            return iter(self.data)
+        def __getitem__(self, idx):
+            return self.data[idx]
+
+    class SimpleDataFrame:
+        def __init__(self, rows=None, columns=None):
+            if isinstance(rows, dict):
+                self.columns = list(rows.keys())
+                length = max((len(v) for v in rows.values()), default=0)
+                self._rows = [{k: rows[k][i] if i < len(rows[k]) else "" for k in self.columns} for i in range(length)]
+            else:
+                self._rows = list(rows) if rows else []
+                self.columns = list(columns) if columns else (list(self._rows[0].keys()) if self._rows else [])
+
+        @property
+        def empty(self):
+            return len(self._rows) == 0
+
+        @property
+        def index(self):
+            return list(range(len(self._rows)))
+
+        def __len__(self):
+            return len(self._rows)
+
+        def __getitem__(self, key):
+            if isinstance(key, list):
+                if all(isinstance(k, bool) for k in key):
+                    return SimpleDataFrame([r for r, flag in zip(self._rows, key) if flag], columns=self.columns)
+                return SimpleDataFrame([{c: r.get(c, "") for c in key} for r in self._rows], columns=key)
+            return SimpleSeries([r.get(key, "") for r in self._rows])
+
+        def __setitem__(self, key, val):
+            if key not in self.columns:
+                self.columns.append(key)
+            if isinstance(val, (list, SimpleSeries)):
+                for r, v in zip(self._rows, val):
+                    r[key] = v
+            else:
+                for r in self._rows:
+                    r[key] = val
+
+        def iterrows(self):
+            for idx, r in enumerate(self._rows):
+                yield idx, r
+
+        def dropna(self, subset=None):
+            if not subset:
+                return self
+            filtered = [r for r in self._rows if all(str(r.get(c, "")).strip() not in ["", "None", "nan"] for c in subset)]
+            return SimpleDataFrame(filtered, columns=self.columns)
+
+        def drop(self, idx_list):
+            idx_set = set(idx_list)
+            return SimpleDataFrame([r for i, r in enumerate(self._rows) if i not in idx_set], columns=self.columns)
+
+        def drop_duplicates(self, subset=None, keep='last', inplace=False):
+            seen = {}
+            for i, r in enumerate(self._rows):
+                k = tuple(r.get(c, "") for c in subset) if subset else tuple(r.items())
+                if keep == 'last' or k not in seen:
+                    seen[k] = r
+            res = list(seen.values())
+            if inplace:
+                self._rows = res
+            else:
+                return SimpleDataFrame(res, columns=self.columns)
+
+        def drop_columns(self, cols):
+            for c in cols:
+                if c in self.columns: self.columns.remove(c)
+                for r in self._rows: r.pop(c, None)
+
+        def drop(self, labels=None, columns=None, inplace=False):
+            if columns:
+                if inplace:
+                    self.drop_columns(columns)
+                    return None
+                df_c = self.copy()
+                df_c.drop_columns(columns)
+                return df_c
+            idx_set = set(labels) if labels is not None else set()
+            return SimpleDataFrame([r for i, r in enumerate(self._rows) if i not in idx_set], columns=self.columns)
+
+        def copy(self):
+            return SimpleDataFrame([dict(r) for r in self._rows], columns=list(self.columns))
+
+        def astype(self, t):
+            return SimpleDataFrame([{k: str(v) if v is not None else "" for k, v in r.items()} for r in self._rows], columns=self.columns)
+
+        def replace(self, old, new):
+            return SimpleDataFrame([{k: (new if v == old else v) for k, v in r.items()} for r in self._rows], columns=self.columns)
+
+        def to_excel(self, filepath, index=False):
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.append(self.columns)
+            for r in self._rows:
+                ws.append([r.get(c, "") for c in self.columns])
+            wb.save(filepath)
+
+    class SimplePandas:
+        DataFrame = SimpleDataFrame
+        @staticmethod
+        def notna(val):
+            return val is not None and str(val).strip().lower() not in ["", "nan", "none"]
+        @staticmethod
+        def read_excel(filepath, dtype=str, skiprows=0):
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            ws = wb.active
+            all_rows = list(ws.iter_rows(values_only=True))
+            if len(all_rows) <= skiprows:
+                return SimpleDataFrame()
+            headers = [str(h).strip() if h is not None else f"Col_{i}" for i, h in enumerate(all_rows[skiprows])]
+            data_rows = []
+            for row in all_rows[skiprows + 1:]:
+                if all(cell is None for cell in row): continue
+                r_dict = {headers[i]: (str(row[i]).strip() if row[i] is not None else "") for i in range(len(headers)) if i < len(row)}
+                data_rows.append(r_dict)
+            return SimpleDataFrame(data_rows, columns=headers)
+        @staticmethod
+        def read_csv(filepath, dtype=str, skiprows=0):
+            with open(filepath, mode='r', encoding='utf-8-sig', errors='ignore') as f:
+                reader = list(csv.reader(f))
+            if len(reader) <= skiprows:
+                return SimpleDataFrame()
+            headers = [str(h).strip() for h in reader[skiprows]]
+            data_rows = []
+            for row in reader[skiprows + 1:]:
+                if not row: continue
+                r_dict = {headers[i]: (str(row[i]).strip() if i < len(row) else "") for i in range(len(headers))}
+                data_rows.append(r_dict)
+            return SimpleDataFrame(data_rows, columns=headers)
+        @staticmethod
+        def concat(dfs, ignore_index=True):
+            all_cols = []
+            all_rows = []
+            for d in dfs:
+                for c in d.columns:
+                    if c not in all_cols: all_cols.append(c)
+                for r in d._rows:
+                    all_rows.append(dict(r))
+            return SimpleDataFrame(all_rows, columns=all_cols)
+
+    pd = SimplePandas()
 from kivy.app import App
 # ... बाकी सभी kivy इम्पोर्ट्स ...
 
@@ -761,7 +937,6 @@ class DashboardScreen(Screen):
         from kivy.uix.spinner import Spinner
         from kivy.uix.widget import Widget
         import os
-        import pandas as pd
         import openpyxl
 
         # मुख्य वर्टिकल बॉक्स लेआउट पैनल
@@ -1348,7 +1523,7 @@ class DashboardScreen(Screen):
 
     def action_upload_student_excel_database(self, instance):
         import os, re
-        import pandas as pd
+        
 
         def process_student_excel(file_path):
             if not file_path:
@@ -1980,7 +2155,7 @@ class DashboardScreen(Screen):
         dynamic_inputs = []
         
         import os
-        import pandas as pd
+        
         from kivy.graphics import Color, Rectangle
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
@@ -3694,7 +3869,7 @@ class DashboardScreen(Screen):
         self.mdm_sub_box.clear_widgets()
         MDM_ACC_FILE = os.path.join(os.getcwd(), 'MDM_Account_Database.xlsx')
         
-        import pandas as pd
+        
         from kivy.uix.widget import Widget
         from kivy.graphics import Color, Rectangle
         
@@ -3963,7 +4138,7 @@ class DashboardScreen(Screen):
     # 💾 ✨ [सुधार 3]: 100% वर्किंग लाइव राशन डेटा राइटिंग इंजन (No Mismatch Lock)
     def action_process_and_save_ration_stock(self, instance):
         import os
-        import pandas as pd
+        
         RATION_FILE = 'MDM_Ration_Stock_Database.xlsx'
         try:
             m_p = self.r_month.text.strip()
@@ -4240,7 +4415,7 @@ class DashboardScreen(Screen):
     def save_staff_data(self, instance):
         import shutil
         import os
-        import pandas as pd
+    
         
         stf_file = 'Staff_Database.xlsx'
         ehrms_id_val = self.staff_fields['EHRMS ID'].text.strip()
@@ -4375,7 +4550,7 @@ class DashboardScreen(Screen):
         from kivy.uix.label import Label
         from kivy.uix.popup import Popup
         import os
-        import pandas as pd
+        
 
         pl = BoxLayout(orientation='vertical', padding=(22, 12, 22, 12), spacing=12)
         heading_label = Label(text="Enter Teacher's Name or EHRMS ID:", color=(1, 1, 1, 1), bold=True, font_size=13, size_hint_y=None, height=22)
@@ -4494,7 +4669,7 @@ class DashboardScreen(Screen):
         from kivy.uix.label import Label
         from kivy.uix.button import Button
         import os
-        import pandas as pd
+        
         
         last_final_balance = 0.00
         if os.path.exists(GRANT_FILE):
@@ -4706,7 +4881,7 @@ class DashboardScreen(Screen):
 
     def action_process_and_save_grant_details(self, instance):
         import os
-        import pandas as pd
+        
         GRANT_FILE = 'School_Grant_Database.xlsx'
         try:
             tx_type = self.g_tx_type.text.strip()
@@ -4752,7 +4927,7 @@ class DashboardScreen(Screen):
 
     def generate_grant_report_pdf(self, is_annual=False):
         import os
-        import pandas as pd
+    
         import platform
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer
@@ -4927,7 +5102,7 @@ class DashboardScreen(Screen):
         self.smc_main_layout.clear_widgets()
         SMC_FILE = 'SMC_Members_Database.xlsx'
         import os
-        import pandas as pd
+    
         from kivy.graphics import Color, Rectangle
         from kivy.uix.widget import Widget
         from kivy.uix.scrollview import ScrollView
@@ -5150,7 +5325,6 @@ class DashboardScreen(Screen):
     # 💾 ✨ [डेटा राइटिंग इंजन]: ४ विजेट्स (Gender सहित) रीयल-टाइम एक्सेल लॉकिंग सिस्टम - १००% फिक्स लॉक
     def action_save_smc_members_data(self, instance):
         SMC_FILE = 'SMC_Members_Database.xlsx'
-        import pandas as pd
         import os
         current_session = self.smc_session_spinner.text.strip()
         smc_records = []
@@ -5197,7 +5371,6 @@ class DashboardScreen(Screen):
     # 🖨️ 🏛️ [मास्टर पीडीएफ प्रिंटर - अपग्रेड फाइनल सिंक]: ६-कॉलम्स जेंडर, मोबाइल १०-डिजिट एवं परफेक्ट लोगो पोजीशन लॉक
     def generate_smc_report_pdf(self):
         import os
-        import pandas as pd
         import platform
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer, Image
@@ -5638,7 +5811,6 @@ class DashboardScreen(Screen):
         # 👑 [महा अपग्रेड - यूनिवर्सल डेटा रिफ्लेक्टर]: खाली मानों (nan) को बाईपास कर सभी ४ कतारें लाइव शो करने का अंतिम फिक्स
         if os.path.exists(COOK_FILE):
             try:
-                import pandas as pd
                 df_db = pd.read_excel(COOK_FILE, dtype=str)
                 df_db['Session'] = df_db['Session'].astype(str).str.strip()
                 
@@ -5756,7 +5928,7 @@ class DashboardScreen(Screen):
     # 💾 ✨ [भाग बी]: पांडा ८-विजेट्स रीयल-TIME एक्सेल राइटिंग इंजन (No Mismatch Lock)
     def action_save_cook_members_data(self, instance):
         COOK_FILE = 'Cook_Members_Database.xlsx'
-        import pandas as pd; import os
+        import os
         current_session = self.cook_session_spinner.text.strip()
         cook_records = []
         try:
@@ -6084,7 +6256,6 @@ class DashboardScreen(Screen):
     # 📥 [टीसी बैकएंड इंजन 1]: टीसी फ़ील्ड्स की ब्लैंक एक्सेल टेम्पलेट डाउनलोड करने का शासकीय मैकेनिज्म
     def action_download_tc_excel_format(self, instance):
         import os
-        import pandas as pd
         TEMPLATE_FILE = 'TC_Upload_Template.xlsx'
         try:
             # आपके फ़ॉर्म के २७ सटीक कॉलम्स का क्रम एरे मैट्रिक्स
@@ -6109,7 +6280,6 @@ class DashboardScreen(Screen):
        # 📤 [टीसी बैकएंड इंजन 2]: बल्क टीसी एक्सेल डेटा को १ सेकंड में डेटाबेस में मर्ज करने का मास्टर इंजन
     def action_upload_tc_excel_database(self, instance):
         import os
-        import pandas as pd
 
         def process_tc_excel_file(file_path):
             if not file_path:
@@ -7366,7 +7536,7 @@ class DashboardScreen(Screen):
 
      # 🖨️ 🍱 [भाग ए]: मासिक खाद्यान्न प्रोग्रेस रिपोर्ट (MPR) जनरेट करने का जादुई इंजन - 100% फिक्स लॉक
     def generate_mdm_monthly_mpr_pdf(self):
-        import os; import pandas as pd; import platform
+        import os; import platform
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer
         from reportlab.lib.styles import ParagraphStyle
