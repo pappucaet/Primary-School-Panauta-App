@@ -23,7 +23,7 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Override urlretrieve & Bypass ReportLab C-Recipe
+      - name: Override urlretrieve & Fix ReportLab Cleanly
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
@@ -32,23 +32,15 @@ jobs:
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
-                  if 'hg.reportlab.com' in url:
-                      # 1. P4A की पुरानी reportlab रेसिपी को Pure-Python रेसिपी में बदलना (बिना किसी C-patch या C-compile एरर के)
+                  if '://reportlab.com' in url:
                       for root, dirs, files in os.walk(os.getcwd()):
+                          for f in files:
+                              if f == 'fix-setup.patch':
+                                  open(os.path.join(root, f), 'w').write('')
                           if root.endswith(os.path.join('recipes', 'reportlab')) and '__init__.py' in files:
                               rec_path = os.path.join(root, '__init__.py')
-                              pure_recipe = '''from pythonforandroid.recipe import PythonRecipe
-          class ReportLabRecipe(PythonRecipe):
-              version = '4.2.5'
-              url = 'https://pythonhosted.org{version}.tar.gz'
-              depends = ['setuptools', 'pillow']
-              site_packages_name = 'reportlab'
-              call_hostpython_via_targetpython = False
-          recipe = ReportLabRecipe()
-          '''
+                              pure_recipe = "from pythonforandroid.recipe import PythonRecipe\nclass ReportLabRecipe(PythonRecipe):\n    version = '4.2.5'\n    url = 'https://pythonhosted.org{version}.tar.gz'\n    depends = ['setuptools', 'pillow']\n    site_packages_name = 'reportlab'\n    call_hostpython_via_targetpython = False\nrecipe = ReportLabRecipe()\n"
                               open(rec_path, 'w').write(pure_recipe)
-                              print('>>> REPLACED REPORTLAB RECIPE WITH PURE PYTHON:', rec_path, flush=True)
-                      # 2. PyPI से असली reportlab .tar.gz डाउनलोड करना
                       os.makedirs('/tmp/rl_dl', exist_ok=True)
                       subprocess.run(['pip', 'download', 'reportlab', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
                       for f in os.listdir('/tmp/rl_dl'):
@@ -61,7 +53,7 @@ jobs:
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched sitecustomize.py with Pure-Python ReportLab Recipe!"
+          echo "Patched sitecustomize.py cleanly!"
 
       - name: Build Android APK
         run: |
