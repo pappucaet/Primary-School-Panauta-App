@@ -23,25 +23,23 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Bypass ReportLab Old Patches & Fix URL
+      - name: Bypass ReportLab Patch & Fix Download URL
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-          
-          # 1. P4A ReportLab रेसिपी से पुराने setup.py पैच हटाना
-          RL_REC="$SITE_PKG/pythonforandroid/recipes/reportlab/__init__.py"
-          if [ -f "$RL_REC" ]; then
-            sed -i "s/patches = \[.*\]/patches = []/g" "$RL_REC"
-            python -c "p='$RL_REC'; t=open(p).read(); open(p,'w').write(t.replace(\"patches = ['fix-setup.patch']\", 'patches = []'))"
-          fi
-
-          # 2. लेटेस्ट ReportLab को PyPI से डाउनलोड करने का हुक
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
           import urllib.request, subprocess, os, shutil, zipfile, tarfile
           def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
-                  if 'hg.reportlab.com' in url:
+                  if '://reportlab.com' in url:
+                      # 1. .buildozer के अंदर मौजूद पुराने fix-setup.patch को खाली करना ताकि Hunk FAILED न हो
+                      for root, dirs, files in os.walk(os.getcwd()):
+                          for f in files:
+                              if f == 'fix-setup.patch':
+                                  open(os.path.join(root, f), 'w').write('')
+                                  print('>>> CLEARED OLD REPORTLAB PATCH:', os.path.join(root, f), flush=True)
+                      # 2. लेटेस्ट ReportLab को PyPI से डाउनलोड करना
                       os.makedirs('/tmp/rl_dl', exist_ok=True)
                       subprocess.run(['pip', 'download', 'reportlab', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
                       for f in os.listdir('/tmp/rl_dl'):
@@ -62,7 +60,7 @@ jobs:
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched ReportLab recipe & downloader successfully!"
+          echo "Patched sitecustomize.py with live .buildozer patch cleaner!"
 
       - name: Build Android APK
         run: |
