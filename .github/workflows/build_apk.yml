@@ -23,23 +23,24 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Override urlretrieve Globally with Curl
+      - name: Override urlretrieve & Fix Dead ReportLab URL
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
           import urllib.request, subprocess, os
           def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
+              if 'hg.reportlab.com' in url:
+                  url = 'https://pythonhosted.org'
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
-                  res = subprocess.run(['curl', '-f', '-s', '-S', '-L', '-A', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', url, '-o', filename])
+                  res = subprocess.run(['curl', '-f', '-s', '-S', '-L', '-A', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', url, '-o', filename])
                   if res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0:
                       return (filename, {})
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched sitecustomize.py in $SITE_PKG"
-
+          echo "Patched sitecustomize.py with working ReportLab mirror!"
 
       - name: Build Android APK
         run: |
