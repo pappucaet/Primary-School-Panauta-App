@@ -5,7 +5,7 @@ package.domain = org.panauta
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,ttf,xlsx
 version = 1.0
-requirements = python3,kivy,openpyxl,reportlab,pillow,plyer,android
+requirements = python3,kivy,et-xmlfile,openpyxl,charset-normalizer==3.3.2,reportlab,pillow,plyer,android
 icon.filename = %(source.dir)s/logo.png
 orientation = portrait
 fullscreen = 0
