@@ -15,4 +15,5 @@ android.ndk = 25b
 android.minapi = 24
 android.archs = arm64-v8a
 p4a.local_recipes = ./p4a_recipes
+p4a.branch = release-2024.01.21
 android.accept_sdk_license = True
