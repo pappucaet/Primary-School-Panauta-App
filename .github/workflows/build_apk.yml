@@ -23,7 +23,7 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Override urlretrieve & Fix Dead ReportLab URL
+      - name: Override urlretrieve & Fix ReportLab 3.5.68
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
@@ -32,9 +32,9 @@ jobs:
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
-                  if 'hg.reportlab.com' in url:
+                  if '://reportlab.com' in url:
                       os.makedirs('/tmp/rl_dl', exist_ok=True)
-                      subprocess.run(['pip', 'download', 'reportlab', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
+                      subprocess.run(['pip', 'download', 'reportlab==3.5.68', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
                       for f in os.listdir('/tmp/rl_dl'):
                           src_f = os.path.join('/tmp/rl_dl', f)
                           if f.endswith('.tar.gz'):
@@ -53,7 +53,7 @@ jobs:
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched sitecustomize.py with latest PyPI ReportLab downloader!"
+          echo "Patched sitecustomize.py with exact ReportLab 3.5.68!"
 
       - name: Build Android APK
         run: |
