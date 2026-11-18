@@ -16,25 +16,25 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache
+          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache curl
 
       - name: Install Buildozer & Dependencies
         run: |
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Bypass 403 Blocked Mirrors in P4A Recipes
+      - name: Patch P4A Downloader with Curl & URL Logger
         run: |
           python -c "
           import pythonforandroid, os
           p4a_dir = os.path.dirname(pythonforandroid.__file__)
-          ft_recipe = os.path.join(p4a_dir, 'recipes', 'freetype', '__init__.py')
-          if os.path.exists(ft_recipe):
-              txt = open(ft_recipe).read()
-              txt = txt.replace('https://nongnu.org{version}.tar.gz', 'https://sourceforge.net{version}/freetype-{version}.tar.gz')
-              txt = txt.replace('http://nongnu.org{version}.tar.gz', 'https://sourceforge.net{version}/freetype-{version}.tar.gz')
-              open(ft_recipe, 'w').write(txt)
-              print('Freetype mirror patched successfully!')
+          rec_file = os.path.join(p4a_dir, 'recipe.py')
+          txt = open(rec_file).read()
+          old_code = 'urlretrieve(url, target, report_hook)'
+          new_code = '''print('>>> DOWNLOADING URL:', url); os.system(f'curl -L -A \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0\" \"{url}\" -o \"{target}\"') if os.system(f'curl -f -L -A \"Mozilla/5.0\" \"{url}\" -o \"{target}\"') == 0 else urlretrieve(url, target, report_hook)'''
+          txt = txt.replace(old_code, new_code)
+          open(rec_file, 'w').write(txt)
+          print('P4A Downloader Patched with Curl!')
           "
 
       - name: Build Android APK
