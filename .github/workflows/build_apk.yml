@@ -23,19 +23,21 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Create Browser User-Agent Patch
+      - name: Bypass 403 Blocked Mirrors in P4A Recipes
         run: |
-          mkdir -p /tmp/py_patch
-          cat << 'EOF' > /tmp/py_patch/sitecustomize.py
-          import urllib.request
-          opener = urllib.request.build_opener()
-          opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')]
-          urllib.request.install_opener(opener)
-          EOF
+          python -c "
+          import pythonforandroid, os
+          p4a_dir = os.path.dirname(pythonforandroid.__file__)
+          ft_recipe = os.path.join(p4a_dir, 'recipes', 'freetype', '__init__.py')
+          if os.path.exists(ft_recipe):
+              txt = open(ft_recipe).read()
+              txt = txt.replace('https://nongnu.org{version}.tar.gz', 'https://sourceforge.net{version}/freetype-{version}.tar.gz')
+              txt = txt.replace('http://nongnu.org{version}.tar.gz', 'https://sourceforge.net{version}/freetype-{version}.tar.gz')
+              open(ft_recipe, 'w').write(txt)
+              print('Freetype mirror patched successfully!')
+          "
 
       - name: Build Android APK
-        env:
-          PYTHONPATH: "/tmp/py_patch"
         run: |
           yes | buildozer -v android debug
 
