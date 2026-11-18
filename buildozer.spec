@@ -14,4 +14,5 @@ android.api = 33
 android.ndk = 25b
 android.minapi = 24
 android.archs = arm64-v8a
+p4a.local_recipes = ./p4a_recipes
 android.accept_sdk_license = True
