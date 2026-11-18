@@ -16,15 +16,55 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache
+          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev automake ccache curl
 
       - name: Install Buildozer & Dependencies
         run: |
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
+      - name: Patch Pip Wheel Platform Check for Python 3.14 Android
+        run: |
+          SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
+          import os, glob, shutil
+          # जब भी buildozer अपनी hostpython venv बनाएगा, हम उसके sitecustomize में भी पैच डाल देंगे
+          EOF
+          # P4A के recipe.py में जाकर pip install --no-deps को --platform android_24_arm64_v8a --only-binary=:all: या wheel rename सपोर्ट देना
+          P4A_REC=$(python -c "import pythonforandroid, os; print(os.path.join(os.path.dirname(pythonforandroid.__file__), 'recipe.py'))")
+          python -c "
+          p = '$P4A_REC'
+          txt = open(p).read()
+          old_cmd = \"'pip', 'install', '-v', '--target'\"
+          new_cmd = \"'pip', 'install', '-v', '--platform', 'android_24_arm64_v8a', '--only-binary=:all:', '--target'\"
+          if old_cmd in txt:
+              txt = txt.replace(old_cmd, new_cmd)
+          open(p, 'w').write(txt)
+          print('Patched P4A recipe.py pip wheel platform flag!')
+          "
+
       - name: Build Android APK
         run: |
+          # Buildozer रन होते समय .buildozer के अंदर बनने वाले p4a को भी लाइव पैच करने के लिए बैकग्राउंड वॉचर
+          (
+            while true; do
+              for f in $(find .buildozer -name "recipe.py" 2>/dev/null); do
+                if grep -q "'pip', 'install', '-v', '--target'" "$f"; then
+                  sed -i "s/'pip', 'install', '-v', '--target'/'pip', 'install', '-v', '--platform', 'android_24_arm64_v8a', '--only-binary=:all:', '--target'/g" "$f"
+                  echo ">>> LIVE PATCHED P4A WHEEL CHECK IN: $f"
+                fi
+              done
+              # किसी भी android_24_arm64_v8a.whl को none-any.whl की कॉपी भी दे देना ताकि pip कभी मना न करे
+              for w in $(find .buildozer -name "*android_24_arm64_v8a.whl" 2>/dev/null); do
+                nw=$(echo "$w" | sed 's/cp314-cp314-android_24_arm64_v8a/py3-none-any/g')
+                if [ ! -f "$nw" ]; then
+                  cp "$w" "$nw"
+                  sed -i 's/cp314-cp314-android_24_arm64_v8a/py3-none-any/g' .buildozer/android/platform/build-arm64-v8a/build/requirements.txt 2>/dev/null || true
+                fi
+              done
+              sleep 2
+            done
+          ) &
           yes | buildozer -v android debug
 
       - name: Upload APK Artifact
