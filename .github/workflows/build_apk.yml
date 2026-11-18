@@ -23,18 +23,24 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Patch P4A Downloader with Curl & URL Logger
+      - name: Override urlretrieve Globally with Curl
         run: |
           python -c "
-          import pythonforandroid, os
-          p4a_dir = os.path.dirname(pythonforandroid.__file__)
-          rec_file = os.path.join(p4a_dir, 'recipe.py')
-          txt = open(rec_file).read()
-          old_code = 'urlretrieve(url, target, report_hook)'
-          new_code = '''print('>>> DOWNLOADING URL:', url); os.system(f'curl -L -A \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0\" \"{url}\" -o \"{target}\"') if os.system(f'curl -f -L -A \"Mozilla/5.0\" \"{url}\" -o \"{target}\"') == 0 else urlretrieve(url, target, report_hook)'''
-          txt = txt.replace(old_code, new_code)
-          open(rec_file, 'w').write(txt)
-          print('P4A Downloader Patched with Curl!')
+          import site, os
+          sp = site.getsitepackages()
+          patch_code = '''import urllib.request, subprocess, os
+          def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
+              print('>>> FETCHING URL:', url, flush=True)
+              if filename:
+                  os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+                  res = subprocess.run(['curl', '-f', '-s', '-S', '-L', '-A', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36', url, '-o', filename])
+                  if res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0:
+                      return (filename, {})
+              raise Exception(f'Curl failed for {url}')
+          urllib.request.urlretrieve = custom_urlretrieve
+          '''
+          open(os.path.join(sp, 'sitecustomize.py'), 'w').write(patch_code)
+          print('Global sitecustomize.py installed at:', sp)
           "
 
       - name: Build Android APK
