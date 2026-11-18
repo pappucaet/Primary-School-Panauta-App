@@ -25,10 +25,9 @@ jobs:
 
       - name: Override urlretrieve Globally with Curl
         run: |
-          python -c "
-          import site, os
-          sp = site.getsitepackages()
-          patch_code = '''import urllib.request, subprocess, os
+          SITE_PKG=$(python -c "import site; print(site.getsitepackages())")
+          cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
+          import urllib.request, subprocess, os
           def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
@@ -38,10 +37,8 @@ jobs:
                       return (filename, {})
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
-          '''
-          open(os.path.join(sp, 'sitecustomize.py'), 'w').write(patch_code)
-          print('Global sitecustomize.py installed at:', sp)
-          "
+          EOF
+          echo "Patched sitecustomize.py in $SITE_PKG"
 
       - name: Build Android APK
         run: |
