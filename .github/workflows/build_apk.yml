@@ -23,28 +23,43 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Override urlretrieve & Fix ReportLab Mirror
+      - name: Override urlretrieve & Auto-Pack Latest ReportLab
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
-          import urllib.request, subprocess, os
+          import urllib.request, subprocess, os, shutil, zipfile, tarfile
           def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
-              if 'hg.reportlab.com' in url:
-                  url = 'https://github.com'
-                  for root, dirs, files in os.walk(os.getcwd()):
-                      for f in files:
-                          if f == 'fix-setup.patch':
-                              open(os.path.join(root, f), 'w').write('')
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+                  if '://reportlab.com' in url:
+                      # 1. पुराने fix-setup.patch को खाली करना ताकि Hunk FAILED न हो
+                      for root, dirs, files in os.walk(os.getcwd()):
+                          for f in files:
+                              if f == 'fix-setup.patch':
+                                  open(os.path.join(root, f), 'w').write('')
+                      # 2. PyPI से असली ताज़ा reportlab सोर्स डाउनलोड करना
+                      os.makedirs('/tmp/rl_dl', exist_ok=True)
+                      subprocess.run(['pip', 'download', 'reportlab', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'], check=True)
+                      for f in os.listdir('/tmp/rl_dl'):
+                          src_f = os.path.join('/tmp/rl_dl', f)
+                          if f.endswith('.tar.gz'):
+                              shutil.copy(src_f, filename)
+                              return (filename, {})
+                          elif f.endswith('.zip'):
+                              with zipfile.ZipFile(src_f, 'r') as zf:
+                                  zf.extractall('/tmp/rl_ext')
+                              with tarfile.open(filename, 'w:gz') as tf:
+                                  for item in os.listdir('/tmp/rl_ext'):
+                                      tf.add(os.path.join('/tmp/rl_ext', item), arcname=item)
+                              return (filename, {})
                   res = subprocess.run(['curl', '-f', '-s', '-S', '-L', '-A', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36', url, '-o', filename])
                   if res.returncode == 0 and os.path.exists(filename) and os.path.getsize(filename) > 0:
                       return (filename, {})
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched sitecustomize.py with working GitHub ReportLab 3.5.68 archive!"
+          echo "Patched sitecustomize.py with guaranteed ReportLab tar.gz & clean patch!"
 
       - name: Build Android APK
         run: |
