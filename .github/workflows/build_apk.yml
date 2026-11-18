@@ -23,18 +23,27 @@ jobs:
           pip install --upgrade pip
           pip install --upgrade buildozer python-for-android cython virtualenv
 
-      - name: Override urlretrieve & Fix ReportLab 3.5.68
+      - name: Bypass ReportLab Old Patches & Fix URL
         run: |
           SITE_PKG=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+          
+          # 1. P4A ReportLab रेसिपी से पुराने setup.py पैच हटाना
+          RL_REC="$SITE_PKG/pythonforandroid/recipes/reportlab/__init__.py"
+          if [ -f "$RL_REC" ]; then
+            sed -i "s/patches = \[.*\]/patches = []/g" "$RL_REC"
+            python -c "p='$RL_REC'; t=open(p).read(); open(p,'w').write(t.replace(\"patches = ['fix-setup.patch']\", 'patches = []'))"
+          fi
+
+          # 2. लेटेस्ट ReportLab को PyPI से डाउनलोड करने का हुक
           cat << 'EOF' > "$SITE_PKG/sitecustomize.py"
           import urllib.request, subprocess, os, shutil, zipfile, tarfile
           def custom_urlretrieve(url, filename=None, reporthook=None, data=None):
               print('>>> FETCHING URL:', url, flush=True)
               if filename:
                   os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
-                  if '://reportlab.com' in url:
+                  if 'hg.reportlab.com' in url:
                       os.makedirs('/tmp/rl_dl', exist_ok=True)
-                      subprocess.run(['pip', 'download', 'reportlab==3.5.68', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
+                      subprocess.run(['pip', 'download', 'reportlab', '--no-binary', ':all:', '--no-deps', '-d', '/tmp/rl_dl'])
                       for f in os.listdir('/tmp/rl_dl'):
                           src_f = os.path.join('/tmp/rl_dl', f)
                           if f.endswith('.tar.gz'):
@@ -53,7 +62,7 @@ jobs:
               raise Exception(f'Curl failed for {url}')
           urllib.request.urlretrieve = custom_urlretrieve
           EOF
-          echo "Patched sitecustomize.py with exact ReportLab 3.5.68!"
+          echo "Patched ReportLab recipe & downloader successfully!"
 
       - name: Build Android APK
         run: |
