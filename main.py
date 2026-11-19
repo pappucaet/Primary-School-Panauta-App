@@ -700,7 +700,7 @@ class DashboardScreen(Screen):
         from kivy.uix.scrollview import ScrollView
         from kivy.graphics import Color, Rectangle
         import os
-        import pandas as pd
+    
         from datetime import datetime
 
         # 🎨 [प्रीमियम पासबुक बैकग्राउंड कैनवास]
@@ -1501,7 +1501,7 @@ class DashboardScreen(Screen):
        # 📥 [बैकएंड इंजन 1]: प्रवेश कक्षा (CLASS AT ADMISSION) सहित २७ सटीक कॉलम्स वाली ब्लैंक टेम्पलेट शीट डाउनलोड करने का मैकेनिज्म
     def action_download_student_excel_format(self, instance):
         import os, platform
-        import pandas as pd
+        global pd
         TEMPLATE_FILE = 'Student_Upload_Template.xlsx'
         ordered_columns = [
             'SR NO', 'PEN NO', 'APAAR ID', 'NAME', "FATHER'S NAME", "MOTHER'S NAME",
@@ -1929,7 +1929,7 @@ class DashboardScreen(Screen):
     def save_data(self, instance):
         import shutil
         import os, re
-        import pandas as pd
+        global pd
         
         sr_no_val = self.fields['SR NO'].text.strip()
         pen_val = self.fields['PEN NO'].text.strip()
@@ -2433,7 +2433,7 @@ class DashboardScreen(Screen):
 
     def generate_school_consolidated_dbt_pdf(self):
         import os
-        import pandas as pd
+        global pd
         import platform
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer
@@ -4037,7 +4037,7 @@ class DashboardScreen(Screen):
         last_w_bal, last_r_bal = 0.00, 0.00
         if os.path.exists(RATION_FILE):
             try:
-                import pandas as pd
+                global pd
                 df_r = pd.read_excel(RATION_FILE)
                 if not df_r.empty:
                     last_w_bal = float(df_r.iloc[-1].get('Final Wheat Stock', 0.00))
@@ -4117,7 +4117,7 @@ class DashboardScreen(Screen):
         
         if os.path.exists(RATION_FILE):
             try:
-                import pandas as pd
+                global pd
                 df_ledger = pd.read_excel(RATION_FILE)
                 for idx, row in df_ledger.iterrows():
                     # हल्का पासबुक क्रीमी बहीखाता शेड कतारें
@@ -4870,7 +4870,7 @@ class DashboardScreen(Screen):
         head_balance = 0.00
         if os.path.exists(GRANT_FILE):
             try:
-                import pandas as pd
+                global pd
                 df_b = pd.read_excel(GRANT_FILE)
                 if not df_b.empty:
                     filtered_head_df = df_b[df_b['Grant Head'].astype(str).str.strip().str.lower() == selected_head.strip().lower()]
@@ -4921,7 +4921,7 @@ class DashboardScreen(Screen):
     def delete_grant_ledger_row(self, row_index):
         GRANT_FILE = 'School_Grant_Database.xlsx'
         try:
-            import pandas as pd
+            global pd
             if os.path.exists(GRANT_FILE):
                 df = pd.read_excel(GRANT_FILE); df = df.drop(df.index[row_index]); df.to_excel(GRANT_FILE, index=False); self.load_grant_details_view()
         except: pass
@@ -5529,7 +5529,7 @@ class DashboardScreen(Screen):
         self.cook_main_layout.clear_widgets()
         COOK_FILE = 'Cook_Members_Database.xlsx'
         import os
-        import pandas as pd
+        global pd
         from kivy.graphics import Color, Rectangle
         from kivy.uix.widget import Widget
         from kivy.uix.scrollview import ScrollView
@@ -5962,7 +5962,7 @@ class DashboardScreen(Screen):
 
     # 🖨️ 🍱 [मास्टर पीडीएफ प्रिंटर]: ६-कॉलम्स चौड़ाई, शुद्ध मोबाइल नंबर एवं परफेक्ट लोगो पोजीशन लॉक
     def generate_cook_report_pdf(self):
-        import os; import pandas as pd; import platform
+        import os; global pd; import platform
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer, Image
         from reportlab.lib.styles import ParagraphStyle
@@ -7050,7 +7050,7 @@ class DashboardScreen(Screen):
 
     def generate_staff_form_pdf(self, instance):
         import os
-        import pandas as pd
+        global pd
         import platform
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
@@ -7234,7 +7234,7 @@ class DashboardScreen(Screen):
 
     def generate_student_report_card_pdf(self, instance):
         import os
-        import pandas as pd
+        global pd
         import platform
         from reportlab.lib.pagesizes import A4
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -7703,7 +7703,7 @@ class DashboardScreen(Screen):
     ### 🛠️ भाग 2: पूर्ण संरेखित एवं ग्रिड लाइन्स युक्त वित्तीय लेज़र इंजन (`generate_mdm_ledger_report_pdf`)
     def generate_mdm_ledger_report_pdf(self, is_annual=False):
         import os
-        import pandas as pd
+        global pd
         import platform
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer
