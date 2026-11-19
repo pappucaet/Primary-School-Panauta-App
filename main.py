@@ -3057,7 +3057,7 @@ class DashboardScreen(Screen):
                 reg_headers = [Paragraph("<b>SR NO</b>", th_style), Paragraph("<b>STUDENT NAME</b>", th_style), Paragraph("<b>FATHER NAME</b>", th_style), Paragraph("<b>TOTAL WORKING DAYS</b>", th_style), Paragraph("<b>TOTAL PRESENT</b>", th_style), Paragraph("<b>TOTAL ABSENT</b>", th_style), Paragraph("<b>ATTENDANCE %</b>", th_style)]
                 reg_table_rows = [reg_headers]
                 
-                                for r_data in attendance_rows_list:
+                for r_data in attendance_rows_list:
                     reg_table_rows.append([
                         Paragraph(r_data["SR"], td_norm), Paragraph(r_data["NAME"], td_bold), Paragraph(r_data["FATHER"], td_norm),
                         Paragraph(r_data["WORKING"], td_norm), Paragraph(f"<font color='green'><b>{r_data['PRESENT']}</b></font>", td_bold),
