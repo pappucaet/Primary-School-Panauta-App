@@ -8,6 +8,10 @@ from kivy.core.window import Window
 # 👑 [ऑटो फुल स्क्रीन लॉन्चर]: केवल Windows पर maximize करें (Android पर यह अपने आप फुल स्क्रीन खुलता है)
 if kivy_platform == 'win':
     Window.maximize()
+else:
+    # मोबाइल स्क्रीन पर बटन और अक्षरों को साफ़ व पढ़ने योग्य रखने के लिए
+    from kivy.metrics import dp
+    Window.softinput_mode = 'below_target'
 # =========================================================================
 # 🔤 ✨ [100% गारंटेड पूरे प्रोजेक्ट के लिए विंडोज निर्मला हिंदी-इंग्लिश फ़ॉन्ट इंजन]
 # =========================================================================
@@ -470,6 +474,9 @@ class CustomText(TextInput):
     def __init__(self, max_chars=None, only_digits=False, **kwargs):
         self.max_chars = max_chars
         self.only_digits = only_digits
+        if kivy_platform != 'win':
+            kwargs.setdefault('font_size', '13sp')
+            kwargs.setdefault('padding', [6, 6, 6, 6])
         super().__init__(**kwargs)
         self.write_tab = False
         with self.canvas.after:
@@ -489,8 +496,11 @@ class CustomText(TextInput):
         else:
             self.focus_color.rgba = (0, 0, 0, 0)
             self.focus = False
+            
 class CustomSpinner(Spinner):
     def __init__(self, **kwargs):
+        if kivy_platform != 'win':
+            kwargs.setdefault('font_size', '12sp')
         super().__init__(**kwargs)
         with self.canvas.after:
             self.focus_color = Color(0, 0, 0, 0)
@@ -505,7 +515,13 @@ class CustomSpinner(Spinner):
 
 class CustomButton(Button):
     def __init__(self, **kwargs):
+        if kivy_platform != 'win':
+            kwargs.setdefault('font_size', '11sp')
+            kwargs.setdefault('halign', 'center')
+            kwargs.setdefault('valign', 'middle')
         super().__init__(**kwargs)
+        if kivy_platform != 'win':
+            self.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - 4, None)))
         with self.canvas.after:
             self.focus_color = Color(0, 0, 0, 0)
             self.focus_line = Line(rectangle=(self.x, self.y, self.width, self.height), width=2)
@@ -514,7 +530,7 @@ class CustomButton(Button):
     def _update_size(self, instance, value): self.focus_line.rectangle = (instance.x, instance.y, instance.width, instance.height)
     def set_visual_focus(self, is_active):
         if is_active: 
-            self.focus_color.rgba = (0, 0.7, 0.2, 1) # Bright Green Border when selected via TAB
+            self.focus_color.rgba = (0, 0.7, 0.2, 1)
         else: 
             self.focus_color.rgba = (0, 0, 0, 0)
 
