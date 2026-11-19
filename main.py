@@ -47,7 +47,7 @@ os.chdir(DATA_DIR)
 def open_file_cross_platform(filepath):
     try:
         if kivy_platform == 'win':
-            open_file_cross_platform(filepath)
+            os.startfile(filepath)
         elif kivy_platform == 'android':
             from jnius import autoclass
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -142,8 +142,6 @@ else:
         except:
             MY_PROJECT_FONT = 'Helvetica-Bold'
 # =========================================================================
-
-import pandas as pd
 from datetime import datetime
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen
@@ -357,8 +355,8 @@ try:
 except ImportError:
     os.system('pip install openpyxl')
     import openpyxl
-
-Window.size = (1180, 750)
+if kivy_platform == 'win':
+    Window.size = (1180, 750)
 EXCEL_FILE = 'Student_Database.xlsx'
 MARKS_FILE = 'Marks_Database.xlsx'
 ATTENDANCE_FILE = 'Attendance_Database.xlsx'
