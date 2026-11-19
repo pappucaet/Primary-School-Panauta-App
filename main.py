@@ -1397,7 +1397,7 @@ class DashboardScreen(Screen):
         if hasattr(self, 'photo_path_input'): self.photo_path_input.text = ''
         if hasattr(self, 'student_photo'): self.student_photo.source = get_exe_safe_path("logo.png") if os.path.exists(get_exe_safe_path("logo.png")) else ''
     
-        def load_form(self):
+    def load_form(self):
         self.content_area.clear_widgets(); self.current_view = 'registration'
         is_mob = (kivy_platform != 'win')
         with self.content_area.canvas.before: 
@@ -2168,7 +2168,7 @@ class DashboardScreen(Screen):
         except Exception as e: 
             self.popup('Error', f"Saving System Failed: {str(e)}")
 
-        def load_dbt_view(self):
+    def load_dbt_view(self):
         self.content_area.clear_widgets(); self.current_view = 'dbt'; self.dbt_fields = {}; self.dbt_inputs = []
         is_mob = (kivy_platform != 'win')
         with self.content_area.canvas.before:
@@ -2490,7 +2490,7 @@ class DashboardScreen(Screen):
             self.refresh_dbt_grid()
         except Exception as e: self.popup('Error', str(e))
 
-        def generate_school_consolidated_dbt_pdf(self):
+    def generate_school_consolidated_dbt_pdf(self):
         import os, re
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.platypus import SimpleDocTemplate, TableStyle, Table, Paragraph, Spacer
@@ -2780,7 +2780,7 @@ class DashboardScreen(Screen):
         self.hw_tab_index = 0
         self.refresh_hw_grid()
 
-        def refresh_hw_grid(self):
+    def refresh_hw_grid(self):
         self.hw_grid_box.clear_widgets(); self.hw_fields = {}; dynamic_inputs = []
         is_mob = (kivy_platform != 'win')
         sel_class = self.hw_class_spinner.text.strip().lower(); class_num = sel_class.replace('class', '').strip()
@@ -2871,7 +2871,7 @@ class DashboardScreen(Screen):
         scroll.add_widget(grid_table); self.hw_grid_box.add_widget(scroll)
         self.hw_master_tabs = [self.hw_class_spinner, self.hw_month_spinner, self.hw_year_spinner] + dynamic_inputs + [self.btn_save_hw, self.btn_back_hw]
 
-        def save_hw_data(self, instance):
+    def save_hw_data(self, instance):
         if not self.hw_fields: return
         cls = self.hw_class_spinner.text.strip(); mn = self.hw_month_spinner.text.strip(); yr = self.hw_year_spinner.text.strip(); full_period = f"{mn}-{yr}"; hw_list = []
         
