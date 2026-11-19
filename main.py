@@ -1,10 +1,13 @@
-# 👑 [ऑटो फुल स्क्रीन लॉन्चर]: .exe चालू होते ही सॉफ़्टवेयर स्वतः बिना बटन दबाए पूरी स्क्रीन पर लॉक हो जाएगा!
-# 👑 [महा विज़ुअल फिट लॉन्चर]: स्क्रीन कटने की बीमारी को नष्ट कर बिना रिज़ॉल्यूशन बिगाड़े सॉफ़्टवेयर को पूरी स्क्रीन पर आलीशान सिंक किया गया
-from kivy.core.window import Window
-Window.maximize()
 import os
 # Master Memory Fix: Prevents OpenBLAS thread crashes on Windows
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+from kivy.utils import platform as kivy_platform
+from kivy.core.window import Window
+
+# 👑 [ऑटो फुल स्क्रीन लॉन्चर]: केवल Windows पर maximize करें (Android पर यह अपने आप फुल स्क्रीन खुलता है)
+if kivy_platform == 'win':
+    Window.maximize()
 # =========================================================================
 # 🔤 ✨ [100% गारंटेड पूरे प्रोजेक्ट के लिए विंडोज निर्मला हिंदी-इंग्लिश फ़ॉन्ट इंजन]
 # =========================================================================
@@ -26,14 +29,14 @@ def get_exe_safe_path(filename):
                 return full_path
     return filename
 
-# 2. Windows और Android दोनों के लिए सुरक्षित डेटा स्टोरेज फ़ोल्डर सेट करना
 from kivy.utils import platform as kivy_platform
 
 if kivy_platform == 'android':
-    from android.storage import app_storage_path
-    from android.permissions import request_permissions, Permission
-    request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE, Permission.CAMERA])
-    DATA_DIR = app_storage_path()
+    try:
+        from android.storage import app_storage_path
+        DATA_DIR = app_storage_path()
+    except Exception:
+        DATA_DIR = os.path.expanduser('~')
 else:
     DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'Primary_School_Panauta_Data')
 
@@ -7992,4 +7995,27 @@ class SchoolERPApp(App):
         return False
 
 if __name__ == '__main__':
-    SchoolERPApp().run()
+    try:
+        SchoolERPApp().run()
+    except Exception as master_err:
+        import traceback
+        err_msg = traceback.format_exc()
+        from kivy.app import App
+        from kivy.uix.scrollview import ScrollView
+        from kivy.uix.label import Label
+
+        class CrashLogApp(App):
+            def build(self):
+                sv = ScrollView()
+                lbl = Label(
+                    text=f"APP STARTUP LOG:\n\n{err_msg}",
+                    size_hint_y=None,
+                    text_size=(800, None),
+                    color=(1, 0.3, 0.3, 1)
+                )
+                lbl.bind(texture_size=lbl.setter('size'))
+                sv.add_widget(lbl)
+                return sv
+
+        CrashLogApp().run()
+
