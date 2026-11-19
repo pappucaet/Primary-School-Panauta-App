@@ -1682,7 +1682,7 @@ class DashboardScreen(Screen):
             process_student_excel
         )
 
-        def on_same_family_toggle(self, spinner, text):
+    def on_same_family_toggle(self, spinner, text):
         if text == 'Yes':
             is_mob = (kivy_platform != 'win')
             pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 15, spacing=dp(10) if is_mob else 10)
@@ -1760,7 +1760,7 @@ class DashboardScreen(Screen):
                 self.popup('Camera System', 'Live photo snapped successfully!')
 
             capture_mobile_camera_safe(dest_path, on_cam_ok, self.popup)
-        def open_calendar_popup(self, target_input):
+    def open_calendar_popup(self, target_input):
         is_mob = (kivy_platform != 'win')
         pl = BoxLayout(orientation='vertical', padding=dp(10) if is_mob else 10, spacing=dp(8) if is_mob else 10)
         selectors = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(44) if is_mob else 40, spacing=dp(6) if is_mob else 5)
@@ -2287,7 +2287,7 @@ class DashboardScreen(Screen):
                         }
             except: pass
             
-                if os.path.exists(EXCEL_FILE):
+        if os.path.exists(EXCEL_FILE):
             try:
                 df = pd.read_excel(EXCEL_FILE, dtype=str)
                 if 'CLASS' in df.columns:
@@ -2414,7 +2414,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=7, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(2, 2, 2, 10))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else
+        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else [55, 130, 135, 75, 120, 120, 125]
         grid_table.width = sum(col_w)
         grid_table.cols_minimum = {i: col_w[i] for i in range(7)}
         
@@ -2595,7 +2595,7 @@ class DashboardScreen(Screen):
             open_file_cross_platform(out_pdf_name)
         except Exception as ex: self.popup('Print Error', f"Compilation Interrupt: {str(ex)}")
 
-        def load_height_weight_view(self):
+    def load_height_weight_view(self):
         self.content_area.clear_widgets(); self.current_view = 'height_weight'; self.hw_fields = {}
         is_mob = (kivy_platform != 'win')
         with self.content_area.canvas.before:
@@ -2793,7 +2793,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=4, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(2, 2, 2, 10))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w = [dp(60), dp(180), dp(125), dp(125)] if is_mob else
+        col_w = [dp(60), dp(180), dp(125), dp(125)] if is_mob else [60, 220, 120, 120]
         if is_mob:
             grid_table.width = sum(col_w)
         grid_table.cols_minimum = {i: col_w[i] for i in range(4)}
@@ -2957,7 +2957,7 @@ class DashboardScreen(Screen):
                 class_students_list.sort(key=lambda x: str(x.get('NAME', '')).upper())
                 att_df = pd.read_excel(attendance_file, dtype=str)
                 
-                                # 📅 सत्रवार एवं माहवार लाइव एक्सेल फ़िल्टर लॉजिक (Windows + Android क्रॉस-प्लेटफ़ॉर्म)
+                # 📅 सत्रवार एवं माहवार लाइव एक्सेल फ़िल्टर लॉजिक (Windows + Android क्रॉस-प्लेटफ़ॉर्म)
                 filtered_att_rows = []
                 if is_annual:
                     next_year = str(int(sel_year) + 1)
@@ -3163,8 +3163,7 @@ class DashboardScreen(Screen):
                     if r_class == selected_class and r_period == current_period:
                         current_data[s_id] = {'w': str(mw_val), 'p': str(mp_val)}
                         continue
-                    
-                                       if r_class == selected_class:
+                    if r_class == selected_class:
                         if s_id not in prev_data:
                             prev_data[s_id] = {'w': 0, 'p': 0}
                         prev_data[s_id]['w'] += mw_val
@@ -3260,9 +3259,8 @@ class DashboardScreen(Screen):
                 'Cumulative Presents': cp_text,
                 'Class': cls_name,
                 'Month-Year': full_period
-            })
-            
-                try:
+            })       
+        try:
             new_df = pd.DataFrame(att_list)
             
             if not os.path.exists(ATTENDANCE_FILE): 
@@ -3555,7 +3553,7 @@ class DashboardScreen(Screen):
                     target_w.background_color = (0.9, 1.0, 0.9, 1); target_w.focus = True
                 elif 'Button' in target_type or 'CustomButton' in target_type: target_w.state = 'down'
 
-                def mdm_universal_keyboard_hook(window_instance, key, scancode, codepoint, modifiers):
+        def mdm_universal_keyboard_hook(window_instance, key, scancode, codepoint, modifiers):
             if self.current_view != 'mdm': return False
             num_w = len(self.mdm_seq)
             current_w = self.mdm_seq[self.mdm_popup_focus_index] if self.mdm_popup_focus_index < num_w else None
@@ -3609,7 +3607,7 @@ class DashboardScreen(Screen):
         grid = GridLayout(cols=11, spacing=(dp(4), dp(6)) if is_mob else (4, 6), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=5)
         grid.bind(minimum_height=grid.setter('height'))
         
-        col_w_mdm = [dp(80), dp(145), dp(75), dp(75), dp(75), dp(75), dp(75), dp(75), dp(80), dp(80), dp(85)] if is_mob else
+        col_w_mdm = [dp(80), dp(145), dp(75), dp(75), dp(75), dp(75), dp(75), dp(75), dp(80), dp(80), dp(85)] if is_mob else [75, 135, 65, 65, 65, 65, 65, 65, 70, 70, 75]
         if is_mob:
             grid.width = sum(col_w_mdm)
         grid.cols_minimum = {i: col_w_mdm[i] for i in range(11)}
@@ -3943,7 +3941,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=10, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(5, 5, 5, 6))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w_ledg = [dp(140), dp(95), dp(90), dp(95), dp(95), dp(95), dp(95), dp(105), dp(95), dp(60)] if is_mob else
+        col_w_ledg = [dp(140), dp(95), dp(90), dp(95), dp(95), dp(95), dp(95), dp(105), dp(95), dp(60)] if is_mob else [130, 85, 80, 85, 85, 85, 85, 95, 85, 50]
         if is_mob:
             grid_table.width = sum(col_w_ledg)
         grid_table.cols_minimum = {i: col_w_ledg[i] for i in range(10)}
@@ -4107,7 +4105,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=9, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(5, 5, 5, 6))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w_rat = [dp(110), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95)] if is_mob else
+        col_w_rat = [dp(110), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95), dp(95)] if is_mob else [105, 85, 85, 85, 85, 85, 85, 85, 85]
         if is_mob:
             grid_table.width = sum(col_w_rat)
         grid_table.cols_minimum = {i: col_w_rat[i] for i in range(9)}
@@ -4768,7 +4766,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=12, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(5, 5, 5, 6))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w_grt = [dp(150), dp(85), dp(95), dp(90), dp(90), dp(90), dp(90), dp(130), dp(105), dp(105), dp(95), dp(60)] if is_mob else
+        col_w_grt = [dp(150), dp(85), dp(95), dp(90), dp(90), dp(90), dp(90), dp(130), dp(105), dp(105), dp(95), dp(60)] if is_mob else [135, 75, 85, 80, 80, 80, 80, 115, 95, 95, 85, 50]
         if is_mob:
             grid_table.width = sum(col_w_grt)
         grid_table.cols_minimum = {i: col_w_grt[i] for i in range(12)}
@@ -5443,8 +5441,7 @@ class DashboardScreen(Screen):
                 ])
                 display_counter += 1
                 
-            t_register = Table(reg_table_rows, colWidths=, repeatRows=1)
-            
+            t_register = Table(reg_table_rows, colWidths=[32, 168, 130, 55, 105, 60], repeatRows=1)
             t_style_rules = [
                 ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#4A4A4A")), ('BOX', (0,0), (-1,-1), 1.5, NAVY_THEME),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), NAVY_THEME), ('ALIGN', (0,0), (-1,-1), 'CENTER'),
@@ -5751,8 +5748,7 @@ class DashboardScreen(Screen):
         db_scroll = ScrollView(size_hint=(1, None), height=dp(360) if is_mob else 240, do_scroll_x=True, do_scroll_y=True)
         grid_table = GridLayout(cols=10, spacing=(1, 1), size_hint_x=None, size_hint_y=None, padding=2)
         grid_table.bind(minimum_height=grid_table.setter('height'))
-        
-        col_w = [dp(50), dp(155), dp(80), dp(95), dp(145), dp(125), dp(105), dp(125), dp(110), dp(65)] if is_mob else
+        col_w = [dp(50), dp(155), dp(80), dp(95), dp(145), dp(125), dp(105), dp(125), dp(110), dp(65)] if is_mob else [45, 140, 75, 85, 130, 110, 95, 110, 100, 60]
         grid_table.width = sum(col_w)
         for i, w_slot in enumerate(col_w): 
             grid_table.cols_minimum[i] = w_slot
@@ -6016,7 +6012,7 @@ class DashboardScreen(Screen):
                     img_widget
                 ])
                 
-            t_register = Table(reg_table_rows, colWidths=, repeatRows=1)
+            t_register = Table(reg_table_rows, colWidths=[30, 110, 60, 65, 100, 95, 75, 110, 105, 60], repeatRows=1)
             t_style_rules = [
                 ('GRID', (0,0), (-1,-1), 1, colors.HexColor("#4A4A4A")), ('BOX', (0,0), (-1,-1), 1.5, BROWN_THEME),
                 ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), BROWN_THEME), ('ALIGN', (0,0), (-1,-1), 'CENTER'),
@@ -7675,7 +7671,7 @@ class DashboardScreen(Screen):
                 else:
                     reg_table_rows.append([Paragraph(str(d), td_norm), Paragraph(day_name[:3], td_norm), Paragraph("0", td_norm), Paragraph("Not Fed", td_norm), Paragraph("0", td_norm), Paragraph("NO", td_norm), Paragraph("0", td_norm), Paragraph("0", td_norm), Paragraph("0.00", td_norm), Paragraph("0.00", td_norm), Paragraph("Rs.0.00", td_norm)])
                     
-            t_register = Table(reg_table_rows, colWidths=, repeatRows=1)
+            t_register = Table(reg_table_rows, colWidths=[50, 65, 75, 80, 70, 70, 75, 80, 80, 80, 85], repeatRows=1)
             t_style_rules = [('GRID', (0,0), (-1,-1), 0.8, colors.HexColor("#595959")), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('BACKGROUND', (0,0), (-1,0), BROWN_THEME), ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('TOPPADDING', (0,0), (-1,-1), 5), ('BOTTOMPADDING', (0,0), (-1,-1), 5)]
             for i in range(1, len(reg_table_rows)):
                 if i % 2 == 0: t_style_rules.append(('BACKGROUND', (0, i), (-1, i), LIGHT_GOLD))
