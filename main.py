@@ -702,6 +702,7 @@ class DashboardScreen(Screen):
         self.content_area.clear_widgets()
         self.current_view = 'welcome'
         BULLETIN_DB = 'Bulletin_Database.xlsx'
+        is_mob = (kivy_platform != 'win')
         
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.gridlayout import GridLayout
@@ -710,126 +711,120 @@ class DashboardScreen(Screen):
         from kivy.uix.button import Button
         from kivy.uix.scrollview import ScrollView
         from kivy.graphics import Color, Rectangle
+        from kivy.uix.popup import Popup
+        from kivy.uix.behaviors import ButtonBehavior
         import os
-    
         from datetime import datetime
 
-        # 🎨 [प्रीमियम पासबुक बैकग्राउंड कैनवास]
         with self.content_area.canvas.before:
             Color(0.93, 0.94, 0.96, 1)
             self.welcome_canvas_rect = Rectangle(size=self.content_area.size, pos=self.content_area.pos)
         self.content_area.bind(size=lambda ins, val: setattr(self.welcome_canvas_rect, 'size', ins.size), pos=lambda ins, val: setattr(self.welcome_canvas_rect, 'pos', ins.pos))
 
-        # 👑 [लेयर 1]: मुख्य हॉरिजॉन्टल स्प्लिट UI
-        split_master_box = BoxLayout(orientation='horizontal', spacing=15, padding=10)
-        
-        # ⬅️ [लेफ्ट साइड पैनल - ७५% चौड़ाई]
-        left_panel = BoxLayout(orientation='vertical', spacing=10, size_hint_x=0.75)
-        
-        # ✨ [महा-विज़ुअल अपग्रेड - फॉन्ट कलर फिक्स]: लाइट बैकग्राउंड पर साफ़ दिखने के लिए रंगों को डार्क रॉयल ब्लू किया गया
-        left_panel.add_widget(Label(text="Welcome to Primary School Panauta", font_size=24, bold=True, color=(0.05, 0.2, 0.4, 1), size_hint_y=None, height=32, halign='left'))
-        
-        # 👑 [महा विज़ुअल ज़ूम पैच]: तस्वीरों पर क्लिक करते ही उन्हें बड़ी स्क्रीन पर आलीशान पॉप-अप में दिखाने का इंजन
-        from kivy.uix.popup import Popup
-        from kivy.uix.behaviors import ButtonBehavior
-        
-        # किवी इमेज विजेट को क्लिक-रिस्पॉन्सिव (Button Behavior) में बाइंड करना
         class ClickableImage(ButtonBehavior, Image):
             pass
 
         def open_image_zoom_popup(img_path, title_text):
-            # बड़ी स्क्रीन का मुख्य बॉक्स निर्माण
             popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-            
-            # बड़ी ज़ूम की हुई तस्वीर जोड़ना
-            large_img = Image(source=img_path, allow_stretch=True, keep_ratio=True, size_hint=(1, 0.9))
+            large_img = Image(source=img_path, allow_stretch=True, keep_ratio=True, size_hint=(1, 0.88))
             popup_layout.add_widget(large_img)
-            
-            # नीचे सुंदर क्लोज बटन जोड़ना
-            close_btn = Button(text="❌ क्लोज विंडो (Close)", size_hint=(1, 0.1), background_color=(0.7, 0.1, 0.1, 1), font_size=16, bold=True)
+            close_btn = Button(text="❌ CLOSE", size_hint=(1, 0.12), background_color=(0.7, 0.1, 0.1, 1), font_size=sp(15) if is_mob else 16, bold=True)
             popup_layout.add_widget(close_btn)
-            
-            # फाइनल पॉप-अप विंडो की साइज और थीम लॉक करना
-            image_popup = Popup(title=f"🔍 {title_text} - FULL VIEW", content=popup_layout, size_hint=(0.85, 0.85), auto_dismiss=True)
+            image_popup = Popup(title=f"🔍 {title_text} - FULL VIEW", content=popup_layout, size_hint=(0.94, 0.82) if is_mob else (0.85, 0.85), auto_dismiss=True)
             close_btn.bind(on_release=image_popup.dismiss)
             image_popup.open()
 
         def build_visual_card(img_name, cap_title, sub_text):
-            # मुख्य विज़ुअल कार्ड का बक्सा
-            card = BoxLayout(orientation='vertical', spacing=3, padding=5)
+            card = BoxLayout(orientation='vertical', spacing=3, padding=5, size_hint_x=None if is_mob else 1, width=dp(165) if is_mob else 150)
             with card.canvas.before:
                 Color(1, 1, 1, 1)
                 card.rect = Rectangle(size=card.size, pos=card.pos)
             card.bind(size=lambda ins, val: setattr(ins.rect, 'size', ins.size), pos=lambda ins, val: setattr(card.rect, 'pos', ins.pos))
             
-            # .exe और .py दोनों के लिए 100% सुरक्षित पाथ रिज़ॉल्वर हुक
             resolved_photo_path = get_exe_safe_path(img_name)
-            
             if os.path.exists(resolved_photo_path):
-                # 🎯 सादे इमेज विजेट को हटाकर यहाँ क्लिक अवेयर 'ClickableImage' इंजेक्ट किया गया है
-                img_widget = ClickableImage(source=resolved_photo_path, allow_stretch=True, keep_ratio=False, size_hint=(1, 0.72))
-                # माउस क्लिक होते ही ज़ूम पॉप-अप खोलने का जादुई हुक बाइंड करना
+                img_widget = ClickableImage(source=resolved_photo_path, allow_stretch=True, keep_ratio=False, size_hint=(1, 0.68))
                 img_widget.bind(on_release=lambda instance: open_image_zoom_popup(resolved_photo_path, cap_title))
                 card.add_widget(img_widget)
             else:
-                card.add_widget(Label(text="📸\n[Image Box]", color=(0.5, 0.5, 0.5, 1), font_size=11, halign='center', size_hint=(1, 0.72)))
+                card.add_widget(Label(text="📸\n[Image Box]", color=(0.5, 0.5, 0.5, 1), font_size=sp(11) if is_mob else 11, halign='center', size_hint=(1, 0.68)))
                 
-            # नीचे लिखे टेक्स्ट कैप्शन्स (पहले की तरह सुरक्षित)
-            lbl_title = Label(text=f"📌 {cap_title}", color=(0.05, 0.2, 0.4, 1), font_size=12, bold=True, halign='center', size_hint=(1, 0.14))
-            lbl_sub = Label(text=sub_text, color=(0.4, 0.4, 0.4, 1), font_size=10, halign='center', size_hint=(1, 0.14))
-            
+            lbl_title = Label(text=f"📌 {cap_title}", color=(0.05, 0.2, 0.4, 1), font_size=sp(11.5) if is_mob else 12, bold=True, halign='center', valign='middle', size_hint=(1, 0.17))
+            lbl_sub = Label(text=sub_text, color=(0.4, 0.4, 0.4, 1), font_size=sp(10) if is_mob else 10, halign='center', valign='middle', size_hint=(1, 0.15))
             lbl_title.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
             lbl_sub.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
-            
             card.add_widget(lbl_title)
             card.add_widget(lbl_sub)
             return card
 
-        # (रो 1): मुख्य गतिविधियाँ
-        gallery_row = BoxLayout(orientation='horizontal', spacing=12, size_hint_y=None, height=145)
+        def make_gallery_strip(items_list):
+            row_box = BoxLayout(orientation='horizontal', spacing=dp(10) if is_mob else 12, size_hint_y=None, height=dp(155) if is_mob else 145)
+            if is_mob:
+                row_box.size_hint_x = None
+                row_box.bind(minimum_width=row_box.setter('width'))
+            for img, cap, sub in items_list:
+                row_box.add_widget(build_visual_card(img, cap, sub))
+            if is_mob:
+                sc = ScrollView(size_hint=(1, None), height=dp(160), do_scroll_x=True, do_scroll_y=False)
+                sc.add_widget(row_box)
+                return sc
+            return row_box
+
+        if is_mob:
+            outer_scroll = ScrollView(do_scroll_x=False, do_scroll_y=True)
+            split_master_box = BoxLayout(orientation='vertical', spacing=dp(12), padding=dp(8), size_hint_y=None)
+            split_master_box.bind(minimum_height=split_master_box.setter('height'))
+            left_panel = BoxLayout(orientation='vertical', spacing=dp(8), size_hint=(1, None))
+            left_panel.bind(minimum_height=left_panel.setter('height'))
+        else:
+            split_master_box = BoxLayout(orientation='horizontal', spacing=15, padding=10)
+            left_panel = BoxLayout(orientation='vertical', spacing=10, size_hint_x=0.75)
+
+        lbl_wel = Label(text="Welcome to Primary School Panauta", font_size=sp(17) if is_mob else 24, bold=True, color=(0.05, 0.2, 0.4, 1), size_hint_y=None, height=dp(32) if is_mob else 32, halign='left', valign='middle')
+        lbl_wel.bind(size=lbl_wel.setter('text_size'))
+        left_panel.add_widget(lbl_wel)
+        
         school_activities = [
-            ('smart_class.jpg', '🖥️ SMART CLASS', 'Use of ICT'),
-            ('sports_day.jpg', '🏆 Republic Day Program', 'Cultural Program'),
-            ('mdm_dining.jpg', '🍱 TLM Presentation', 'District Level TLM Exhibition')
+            ('smart_class.jpg', 'SMART CLASS', 'Use of ICT'),
+            ('sports_day.jpg', 'Republic Day Program', 'Cultural Program'),
+            ('mdm_dining.jpg', 'TLM Presentation', 'District Level TLM Exhibition')
         ]
-        for img, cap, sub in school_activities: gallery_row.add_widget(build_visual_card(img, cap, sub))
-        left_panel.add_widget(gallery_row)
+        left_panel.add_widget(make_gallery_strip(school_activities))
         
-        # ✨ [फॉन्ट कलर फिक्स]: (रो 2 Heading) उपलब्धियों के हेडर को कड़क डार्क मैरून-गोल्ड रंग दिया गया ताकि साफ़ चमके
-        left_panel.add_widget(Label(text="🏆 SCHOOL HISTORIC ACHIEVEMENTS & GLORY", font_size=12, bold=True, color=(0.5, 0.2, 0, 1), size_hint_y=None, height=18, halign='left'))
-        achieve_row = BoxLayout(orientation='horizontal', spacing=12, size_hint_y=None, height=145)
+        lbl_ach = Label(text="🏆 SCHOOL HISTORIC ACHIEVEMENTS & GLORY", font_size=sp(12.5) if is_mob else 12, bold=True, color=(0.5, 0.2, 0, 1), size_hint_y=None, height=dp(24) if is_mob else 18, halign='left', valign='middle')
+        lbl_ach.bind(size=lbl_ach.setter('text_size'))
+        left_panel.add_widget(lbl_ach)
         achievements_list = [
-            ('achieve1.jpg', '🥇 Dakshta Pariksha Award', 'Block Level Educational Excellence'),
-            ('achieve2.jpg', '🏅 Kabaddi CHAMPIONSHIP', 'Block Sports Tournament Winner'),
-            ('achieve3.jpg', '🌟 Report Card Distribution', '100% Standard Literacy Locked')
+            ('achieve1.jpg', 'Dakshta Pariksha Award', 'Block Level Educational Excellence'),
+            ('achieve2.jpg', 'Kabaddi CHAMPIONSHIP', 'Block Sports Tournament Winner'),
+            ('achieve3.jpg', 'Report Card Distribution', '100% Standard Literacy Locked')
         ]
-        for img, cap, sub in achievements_list: achieve_row.add_widget(build_visual_card(img, cap, sub))
-        left_panel.add_widget(achieve_row)
+        left_panel.add_widget(make_gallery_strip(achievements_list))
         
-        # ✨ [फॉन्ट कलर फिक्स]: (रो 3 Heading) कैंपस हेडर को कड़क डार्क सफारी ग्रीन रंग दिया गया
-        left_panel.add_widget(Label(text="🏫 BEAUTIFUL SCHOOL CAMPUS INFRASTRUCTURE GALLERY", font_size=12, bold=True, color=(0, 0.35, 0.2, 1), size_hint_y=None, height=18, halign='left'))
-        campus_row = BoxLayout(orientation='horizontal', spacing=12, size_hint_y=None, height=145)
+        lbl_cmp = Label(text="🏫 SCHOOL CAMPUS INFRASTRUCTURE", font_size=sp(12.5) if is_mob else 12, bold=True, color=(0, 0.35, 0.2, 1), size_hint_y=None, height=dp(24) if is_mob else 18, halign='left', valign='middle')
+        lbl_cmp.bind(size=lbl_cmp.setter('text_size'))
+        left_panel.add_widget(lbl_cmp)
         campus_list = [
-            ('campus1.jpg', '🏛️ MAIN SCHOOL BUILDING', 'Safe and Green Eco-Friendly Campus'),
-            ('campus2.jpg', '🌸 FLOWER HERBAL GARDEN', 'Clean Environment & Nature Study'),
-            ('campus3.jpg', '🏃 MORNING ASSEMBLY GROUND', 'Physical Fitness and Recreation Arena')
+            ('campus1.jpg', 'MAIN SCHOOL BUILDING', 'Safe and Green Eco-Friendly Campus'),
+            ('campus2.jpg', 'FLOWER HERBAL GARDEN', 'Clean Environment & Nature Study'),
+            ('campus3.jpg', 'MORNING ASSEMBLY GROUND', 'Physical Fitness and Recreation Arena')
         ]
-        for img, cap, sub in campus_list: campus_row.add_widget(build_visual_card(img, cap, sub))
-        left_panel.add_widget(campus_row)
-        left_panel.add_widget(BoxLayout()) # बफर स्पेसर
+        left_panel.add_widget(make_gallery_strip(campus_list))
+        if not is_mob:
+            left_panel.add_widget(BoxLayout())
         
         split_master_box.add_widget(left_panel)
         
-        # ➡️ [RIGHT SIDE PANEL - २५% चौड़ाई फिक्स]
-        right_bulletin_panel = BoxLayout(orientation='vertical', spacing=10, size_hint_x=0.25, padding=6)
+        # ➡️ [LIVE BULLETIN BOARD PANEL]
+        right_bulletin_panel = BoxLayout(orientation='vertical', spacing=dp(8) if is_mob else 10, size_hint=(1, None) if is_mob else (0.25, 1), height=dp(320) if is_mob else 500, padding=dp(8) if is_mob else 6)
         with right_bulletin_panel.canvas.before:
             Color(0.12, 0.16, 0.22, 1)
             right_bulletin_panel.rect = Rectangle(size=right_bulletin_panel.size, pos=right_bulletin_panel.pos)
         right_bulletin_panel.bind(size=lambda ins, val: setattr(right_bulletin_panel.rect, 'size', ins.size), pos=lambda ins, val: setattr(right_bulletin_panel.rect, 'pos', ins.pos))
         
-        right_bulletin_panel.add_widget(Label(text="📢 LIVE BULLETIN BOARD", font_size=15, bold=True, color=(1, 1, 0.6, 1), size_hint_y=None, height=25))
+        right_bulletin_panel.add_widget(Label(text="📢 LIVE BULLETIN BOARD", font_size=sp(15) if is_mob else 15, bold=True, color=(1, 1, 0.6, 1), size_hint_y=None, height=dp(30) if is_mob else 25))
         
-        btn_upload_bulletin = Button(text="📤 UPLOAD NEW NOTICE / PDF", background_color=(0.02, 0.45, 0.35, 1), bold=True, font_size=12, size_hint_y=None, height=36)
+        btn_upload_bulletin = Button(text="📤 UPLOAD NEW NOTICE / PDF", background_color=(0.02, 0.45, 0.35, 1), bold=True, font_size=sp(13) if is_mob else 12, size_hint_y=None, height=dp(42) if is_mob else 36)
         
         def local_notice_upload_action(instance):
             def on_notice_picked(file_path):
@@ -839,18 +834,19 @@ class DashboardScreen(Screen):
                     import shutil
                     os.makedirs('Bulletin_Uploads', exist_ok=True)
                     f_base = os.path.basename(file_path)
-                    dest_path = os.path.join('Bulletin_Uploads', f_base)
-                    shutil.copy(file_path, dest_path)
+                    dest_path = os.path.abspath(os.path.join('Bulletin_Uploads', f_base))
+                    if os.path.abspath(file_path) != dest_path:
+                        shutil.copy(file_path, dest_path)
                     
                     from kivy.uix.textinput import TextInput
                     from kivy.uix.popup import Popup
-                    pl = BoxLayout(orientation='vertical', padding=10, spacing=8)
-                    pl.add_widget(Label(text="Enter Brief Notice Headline Caption:", bold=True))
-                    cap_in = TextInput(multiline=False, size_hint_y=None, height=36)
+                    pl = BoxLayout(orientation='vertical', padding=dp(12) if is_mob else 10, spacing=dp(10) if is_mob else 8)
+                    pl.add_widget(Label(text="Enter Brief Notice Headline Caption:", bold=True, font_size=sp(14) if is_mob else 13))
+                    cap_in = TextInput(multiline=False, size_hint_y=None, height=dp(44) if is_mob else 36, font_size=sp(15) if is_mob else 14)
                     pl.add_widget(cap_in)
-                    btn_save_n = Button(text='🔔 PUBLISH TO BOARD', background_color=(0,0.6,0.1,1), bold=True, size_hint_y=None, height=38)
+                    btn_save_n = Button(text='🔔 PUBLISH TO BOARD', background_color=(0,0.6,0.1,1), bold=True, size_hint_y=None, height=dp(44) if is_mob else 38, font_size=sp(14) if is_mob else 13)
                     pl.add_widget(btn_save_n)
-                    pop = Popup(title="Notice Caption Manager", content=pl, size_hint=(0.7, 0.35))
+                    pop = Popup(title="Notice Caption Manager", content=pl, size_hint=(0.92, 0.42) if is_mob else (0.7, 0.35))
                     
                     def commit_notice_to_excel(x):
                         txt_cap = cap_in.text.strip().upper() if cap_in.text.strip() else "OFFICIAL ORDER RELEASED"
@@ -878,44 +874,48 @@ class DashboardScreen(Screen):
         right_bulletin_panel.add_widget(btn_upload_bulletin)
         
         notices_scroll = ScrollView()
-        notices_grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=5)
+        notices_grid = GridLayout(cols=1, spacing=dp(10) if is_mob else 10, size_hint_y=None, padding=5)
         notices_grid.bind(minimum_height=notices_grid.setter('height'))
         
         if os.path.exists(BULLETIN_DB):
             try:
                 df_bulletin = pd.read_excel(BULLETIN_DB, dtype=str)
-                for _, row in df_bulletin.iloc[::-1].iterrows():
+                all_notices = [dict(r_n) for _, r_n in df_bulletin.iterrows()]
+                for row in reversed(all_notices):
                     n_date = str(row.get('Date', ''))
                     n_cap = str(row.get('Caption', ''))
                     n_path = str(row.get('File_Path', ''))
                     
-                    notice_box = BoxLayout(orientation='vertical', spacing=2, padding=8, size_hint_y=None, height=75)
+                    notice_box = BoxLayout(orientation='vertical', spacing=2, padding=8, size_hint_y=None, height=dp(80) if is_mob else 75)
                     with notice_box.canvas.before:
                         Color(0.2, 0.25, 0.35, 1)
                         notice_box.rect = Rectangle(size=notice_box.size, pos=notice_box.pos)
-                    # ✨ [इंडेंटेशन सिंक - लेयर 3]: बुलेटिन नोटिस बॉक्स बाइंडिंग
                     notice_box.bind(size=lambda ins, val: setattr(notice_box.rect, 'size', ins.size), pos=lambda ins, val: setattr(notice_box.rect, 'pos', ins.pos))
                     
-                    notice_box.add_widget(Label(text=f"📅 Date: {n_date}", font_size=11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=16, halign='left'))
+                    notice_box.add_widget(Label(text=f"📅 Date: {n_date}", font_size=sp(11.5) if is_mob else 11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=dp(18) if is_mob else 16, halign='left'))
                     
-                    btn_lnk = Button(text=n_cap, font_size=13.5, bold=True, color=(1,1,1,1), background_normal='', background_color=(0,0,0,0), halign='left', valign='middle')
+                    btn_lnk = Button(text=n_cap, font_size=sp(13.5) if is_mob else 13.5, bold=True, color=(1,1,1,1), background_normal='', background_color=(0,0,0,0), halign='left', valign='middle')
                     btn_lnk.bind(size=btn_lnk.setter('text_size'))
                     btn_lnk.bind(on_press=lambda instance, pth=n_path: open_file_cross_platform(pth) if os.path.exists(pth) else self.popup('Alert', 'Notice file missing!'))
                     
                     notice_box.add_widget(btn_lnk)
                     notices_grid.add_widget(notice_box)
-            except: 
+            except Exception: 
                 pass
         else:
-            notice_box = BoxLayout(orientation='vertical', padding=6, size_hint_y=None, height=60)
-            notice_box.add_widget(Label(text="📢 NO OFFICIAL NOTICES YET\nWelcome to Digital Bulletin Center.", font_size=12, color=(0.8,0.8,0.8,1), halign='center'))
+            notice_box = BoxLayout(orientation='vertical', padding=6, size_hint_y=None, height=dp(65) if is_mob else 60)
+            notice_box.add_widget(Label(text="📢 NO OFFICIAL NOTICES YET\nWelcome to Digital Bulletin Center.", font_size=sp(12.5) if is_mob else 12, color=(0.8,0.8,0.8,1), halign='center'))
             notices_grid.add_widget(notice_box)
             
         notices_scroll.add_widget(notices_grid)
         right_bulletin_panel.add_widget(notices_scroll)
         
         split_master_box.add_widget(right_bulletin_panel)
-        self.content_area.add_widget(split_master_box)
+        if is_mob:
+            outer_scroll.add_widget(split_master_box)
+            self.content_area.add_widget(outer_scroll)
+        else:
+            self.content_area.add_widget(split_master_box)
 
     def menu_nav(self, instance):
         if instance.text == 'EXIT': App.get_running_app().stop()
@@ -1000,9 +1000,9 @@ class DashboardScreen(Screen):
             
         btn_cancel.bind(on_press=close_popup_and_clean_hook)
         
-        # 🎯 एक्शन 1: सिंगल छात्र रिपोर्ट कार्ड प्रिंट इंजन
+                # 🎯 एक्शन 1: सिंगल छात्र रिपोर्ट कार्ड प्रिंट इंजन (Windows + Android क्रॉस-प्लेटफ़ॉर्म)
         def find_and_print_action():
-            query = search_input.text.strip().lower()
+            query = search_input.text.strip().lower().replace('.0', '')
             if not query:
                 self.popup('Alert', 'Please enter a student name or SR NO!'); return
                 
@@ -1013,15 +1013,18 @@ class DashboardScreen(Screen):
                 
             try:
                 st_df = pd.read_excel(student_file, dtype=str)
-                match_student = pd.DataFrame()
-                if 'NAME' in st_df.columns:
-                    match_student = st_df[st_df['NAME'].astype(str).str.strip().str.lower() == query]
-                if match_student.empty and 'SR NO' in st_df.columns:
-                    match_student = st_df[st_df['SR NO'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).str.lower() == query.replace('.0', '')]
+                matched_st_row = None
+
+                for _, r_st in st_df.iterrows():
+                    nm = str(r_st.get('NAME', '')).strip().lower()
+                    sr = str(r_st.get('SR NO', '')).strip().replace('.0', '').lower()
+                    if nm == query or sr == query:
+                        matched_st_row = r_st
+                        break
                     
-                if not match_student.empty:
-                    student_row = match_student.iloc[-1]
-                    sr_no_loaded = str(student_row['SR NO']).strip().replace('.0', '')
+                if matched_st_row is not None:
+                    student_row = matched_st_row
+                    sr_no_loaded = str(student_row.get('SR NO', '')).strip().replace('.0', '')
                     
                     self.current_report_student_profile = {
                         'NAME': str(student_row.get('NAME', '')).strip(), 'SR NO': sr_no_loaded, 'CLASS': str(student_row.get('CLASS', '')).strip(),
@@ -1034,10 +1037,10 @@ class DashboardScreen(Screen):
                     if os.path.exists(marks_file):
                         try:
                             m_df = pd.read_excel(marks_file, dtype=str)
-                            m_df['SR_CLEAN'] = m_df['SR No'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-                            student_all_exams = m_df[m_df['SR_CLEAN'] == sr_no_loaded]
-                            
-                            for _, row in student_all_exams.iterrows():
+                            for _, row in m_df.iterrows():
+                                r_sr = str(row.get('SR No', row.get('SR NO', ''))).strip().replace('.0', '')
+                                if r_sr != sr_no_loaded:
+                                    continue
                                 raw_exam = str(row.get('Exam Type', '')).strip().lower()
                                 if 'satra' in raw_exam and '1' in raw_exam: exam_key = "ST1"
                                 elif 'half' in raw_exam: exam_key = "HALF"
@@ -1050,8 +1053,8 @@ class DashboardScreen(Screen):
                                     db_sub_name = "EVS" if sub.upper() == "HAMARA PARIVESH" else sub
                                     o_val = str(row.get(f"{db_sub_name}_Oral", row.get(f"{db_sub_name.capitalize()}_Oral", '0'))).strip()
                                     w_val = str(row.get(f"{db_sub_name}_Written", row.get(f"{db_sub_name.capitalize()}_Written", '0'))).strip()
-                                    o_num = int(o_val) if o_val.isdigit() else 0
-                                    w_num = int(w_val) if w_val.isdigit() else 0
+                                    o_num = int(float(o_val)) if o_val.replace('.','',1).isdigit() else 0
+                                    w_num = int(float(w_val)) if w_val.replace('.','',1).isdigit() else 0
                                     self.student_marks_summary[f"{sub.upper()}_{exam_key}"] = o_num + w_num
                         except Exception as m_err: print("Marks Compilation Error:", str(m_err))
                     close_popup_and_clean_hook(None)
@@ -1059,7 +1062,7 @@ class DashboardScreen(Screen):
                 else: self.popup('Not Found', f'Error: No student profile found matching "{search_input.text.strip()}"')
             except Exception as e: self.popup('Database Error', f'Error accessing database files: {str(e)}')
 
-               # 🎯 एक्शन 2: संपूर्ण क्लासवाइज़ Excel डाउनलोड + सुव्यवस्थित प्रिंटर पीडीएफ रजिस्टर इंजन
+        # 🎯 एक्शन 2: संपूर्ण क्लासवाइज़ Excel डाउनलोड + सुव्यवस्थित प्रिंटर पीडीएफ रजिस्टर इंजन
         def print_classwise_excel_action():
             selected_class = class_spinner.text.strip()
             student_file = 'Student_Database.xlsx'
@@ -1068,8 +1071,12 @@ class DashboardScreen(Screen):
                 self.popup('Database Alert', 'Database files are missing!'); return
             try:
                 st_df = pd.read_excel(student_file, dtype=str)
-                class_students = st_df[st_df['CLASS'].astype(str).str.strip().str.lower() == selected_class.lower()]
-                if class_students.empty:
+                class_students_rows = []
+                for _, r_st in st_df.iterrows():
+                    if str(r_st.get('CLASS', '')).strip().lower() == selected_class.lower():
+                        class_students_rows.append(dict(r_st))
+
+                if not class_students_rows:
                     self.popup('No Data', f'No student data found for {selected_class}'); return
                 
                 is_c12 = any(x in selected_class.lower() for x in ['1', '2', 'one', 'two'])
@@ -1077,10 +1084,10 @@ class DashboardScreen(Screen):
                 max_subjects = len(subs)
                 
                 m_df = pd.read_excel(marks_file, dtype=str)
-                m_df['SR_CLEAN'] = m_df['SR No'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+                all_marks_rows = [dict(r_m) for _, r_m in m_df.iterrows()]
                 
                 rows_list = []
-                for _, st_row in class_students.iterrows():
+                for st_row in class_students_rows:
                     sr = str(st_row.get('SR NO', '')).strip().replace('.0', '')
                     name = str(st_row.get('NAME', '')).strip().upper()
                     f_name = str(st_row.get("FATHER'S NAME", '')).strip().upper()
@@ -1088,16 +1095,16 @@ class DashboardScreen(Screen):
                     student_total = 0
                     actual_active_subjects = 0
                     student_marks_dict = {"SR NO": sr, "STUDENT NAME": name, "FATHER NAME": f_name}
-                    st_marks_rows = m_df[m_df['SR_CLEAN'] == sr]
+                    st_marks_rows = [rm for rm in all_marks_rows if str(rm.get('SR No', rm.get('SR NO', ''))).strip().replace('.0', '') == sr]
                     
                     for sub in subs:
                         sub_grand_total = 0
                         clean_sub_title = "EVS" if sub == "HAMARA PARIVESH" else sub.title()
                         
-                        for _, m_row in st_marks_rows.iterrows():
+                        for m_row in st_marks_rows:
                             o_val = str(m_row.get(f"{clean_sub_title}_Oral", m_row.get(f"{sub}_Oral", '0'))).strip()
                             w_val = str(m_row.get(f"{clean_sub_title}_Written", m_row.get(f"{sub}_Written", '0'))).strip()
-                            sub_grand_total += (int(o_val) if o_val.isdigit() else 0) + (int(w_val) if w_val.isdigit() else 0)
+                            sub_grand_total += (int(float(o_val)) if o_val.replace('.','',1).isdigit() else 0) + (int(float(w_val)) if w_val.replace('.','',1).isdigit() else 0)
                             
                         student_marks_dict[sub] = sub_grand_total
                         if sub_grand_total > 0:
@@ -1115,7 +1122,7 @@ class DashboardScreen(Screen):
                     
                     student_marks_dict["GRAND TOTAL"] = f"{student_total} / {student_max_marks}"
                     student_marks_dict["PERCENTAGE"] = f"{perc:.1f}%"
-                    student_marks_dict["GRADE"] = grade
+                    student_marks_dict["GRADE"] = grade                    
                     student_marks_dict["STATUS"] = status
                     rows_list.append(student_marks_dict)
 
