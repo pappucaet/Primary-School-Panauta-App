@@ -2980,6 +2980,7 @@ class DashboardScreen(Screen):
                 
                 attendance_rows_list = []
                 for st_row in class_students_list:
+
                     raw_st_sr = str(st_row.get('SR NO', '')).strip()
                     clean_st_sr = raw_st_sr.split('.') if '.' in raw_st_sr else raw_st_sr
                     
