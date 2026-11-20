@@ -1155,11 +1155,12 @@ class DashboardScreen(Screen):
             self.header.add_widget(BoxLayout(size_hint_x=0.10))
             
         tb = BoxLayout(orientation='vertical', size_hint_x=0.72 if is_mob else 0.80)
-        lbl_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(15) if is_mob else 40, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
+        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(15) if is_mob else 40, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
         lbl_sub = Label(text='BLOCK- WAZIRGANJ, DISTRICT- BUDAUN, 243601', font_size=sp(11) if is_mob else 20, bold=True, color=(0.9, 1, 0.9, 1), halign='center', valign='middle')
-        tb.add_widget(lbl_main); tb.add_widget(lbl_sub)
-        lbl_main.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
+        tb.add_widget(self.lbl_dash_main); tb.add_widget(lbl_sub)
+        self.lbl_dash_main.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
         lbl_sub.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
+
         self.header.add_widget(tb)
         
         resolved_school_logo = get_exe_safe_path('logo.png')
@@ -1214,6 +1215,14 @@ class DashboardScreen(Screen):
         self.show_welcome()
         Window.unbind(on_key_down=self.on_keyboard_down) if hasattr(Window, 'on_key_down') else None
         Window.bind(on_key_down=self.on_keyboard_down)
+
+    def on_pre_enter(self, *args):
+        u_info = getattr(App.get_running_app(), 'logged_in_user', None)
+        if u_info and isinstance(u_info, dict):
+            sch_nm = str(u_info.get('School Name', '')).strip()
+            ud_code = str(u_info.get('UDISE', '')).strip()
+            if sch_nm and sch_nm.lower() != 'nan':
+                self.lbl_dash_main.text = f"{sch_nm} - {ud_code}" if ud_code else sch_nm
 
     def popup(self, title, msg):
         is_mob = (kivy_platform != 'win')
@@ -2711,7 +2720,7 @@ class DashboardScreen(Screen):
         self.content_area.add_widget(lbl_hdr)
         
         # 🎛️ टॉप कंट्रोल पैनल (मोबाइल पर 2 कॉलम ताकि कोई बटन या स्पिनर न कटे)
-        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(145) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
+        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(190) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
         top_bar.add_widget(Label(text='Select Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_class_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_class_spinner)
@@ -2725,6 +2734,10 @@ class DashboardScreen(Screen):
         top_bar.add_widget(btn_upload_dbt_excel)
         
         btn_print_school_dbt = Button(text='🖨️ PRINT REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_prerna_sync = Button(text='PRERNA OTP SYNC', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_prerna_sync.bind(on_press=self.open_prerna_portal_dbt_sync)
+        top_bar.add_widget(btn_prerna_sync)
+
         btn_print_school_dbt.bind(on_press=lambda x: self.generate_school_consolidated_dbt_pdf())
         top_bar.add_widget(btn_print_school_dbt)
         
@@ -3020,6 +3033,163 @@ class DashboardScreen(Screen):
             self.popup('Success', f"{cls} सत्र {yr} का DBT रिकॉर्ड बैंक विवरण के साथ सुरक्षित!")
             self.refresh_dbt_grid()
         except Exception as e: self.popup('Error', str(e))
+            
+    def open_prerna_portal_dbt_sync(self, instance):
+        is_mob = (kivy_platform != 'win')
+        pl = BoxLayout(orientation='vertical', padding=dp(14) if is_mob else 18, spacing=dp(10))
+
+        info_lbl = Label(
+            text="1. Click 'OPEN PRERNA PORTAL' below.\n2. Enter Mobile No. & Verify OTP on Prerna.\n3. Open 'DBT Report / Student Payment Status' & click Export Excel.\n4. Click 'AUTO-LOAD DOWNLOADED DBT DATA' below.",
+            color=(1, 1, 1, 1),
+            font_size=sp(13) if is_mob else 13,
+            halign='left',
+            valign='middle',
+            size_hint_y=None,
+            height=dp(115) if is_mob else 100
+        )
+        info_lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(8), None)))
+        pl.add_widget(info_lbl)
+
+        btn_open_web = Button(
+            text='1. OPEN PRERNA PORTAL (OTP LOGIN)',
+            background_color=(0.08, 0.42, 0.78, 1),
+            bold=True,
+            font_size=sp(13) if is_mob else 13,
+            size_hint_y=None,
+            height=dp(44) if is_mob else 40
+        )
+
+        btn_auto_fetch = Button(
+            text='2. AUTO-LOAD DOWNLOADED DBT DATA',
+            background_color=(0.05, 0.58, 0.25, 1),
+            bold=True,
+            font_size=sp(13) if is_mob else 13,
+            size_hint_y=None,
+            height=dp(44) if is_mob else 40
+        )
+
+        btn_close_p = Button(
+            text='CLOSE',
+            background_color=(0.75, 0.15, 0.15, 1),
+            bold=True,
+            font_size=sp(13) if is_mob else 13,
+            size_hint_y=None,
+            height=dp(42) if is_mob else 38
+        )
+
+        pl.add_widget(btn_open_web)
+        pl.add_widget(btn_auto_fetch)
+        pl.add_widget(btn_close_p)
+
+        pop_prerna = Popup(
+            title='Prerna Portal Live DBT Sync',
+            content=pl,
+            size_hint=(0.94, 0.62) if is_mob else (0.50, 0.52),
+            auto_dismiss=False,
+            background='',
+            background_color=(0.14, 0.14, 0.14, 0.98)
+        )
+        btn_close_p.bind(on_press=pop_prerna.dismiss)
+
+        def _launch_prerna_browser(x):
+            prerna_url = "https://prernaup.in"
+            try:
+                if kivy_platform == 'android':
+                    from jnius import autoclass
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    Intent = autoclass('android.content.Intent')
+                    Uri = autoclass('android.net.Uri')
+                    intent = Intent(Intent.ACTION_VIEW, Uri.parse(prerna_url))
+                    PythonActivity.mActivity.startActivity(intent)
+                else:
+                    import webbrowser
+                    webbrowser.open(prerna_url)
+            except Exception as e:
+                self.popup('Browser Alert', f'Please open https://prernaup.in in browser.\n({str(e)})')
+
+        def _auto_scan_and_load_dbt(x):
+            search_dirs = ['/storage/emulated/0/Download', '/storage/emulated/0/Downloads'] if kivy_platform == 'android' else [os.path.join(os.path.expanduser('~'), 'Downloads')]
+            latest_file = None
+            latest_mtime = 0
+
+            for d_path in search_dirs:
+                if os.path.exists(d_path):
+                    try:
+                        for fname in os.listdir(d_path):
+                            low_f = fname.lower()
+                            if low_f.endswith(('.xlsx', '.xls', '.csv')) and any(k in low_f for k in ['dbt', 'student', 'payment', 'prerna', 'beneficiary', 'pfms']):
+                                full_p = os.path.join(d_path, fname)
+                                mt = os.path.getmtime(full_p)
+                                if mt > latest_mtime:
+                                    latest_mtime = mt
+                                    latest_file = full_p
+                    except Exception:
+                        pass
+
+            if latest_file and os.path.exists(latest_file):
+                pop_prerna.dismiss()
+                self._import_dbt_file_direct(latest_file)
+            else:
+                pop_prerna.dismiss()
+                self.popup('Auto-Scan Info', 'No recent DBT file found in Downloads.\nPlease select the downloaded file manually.')
+                self.upload_department_dbt_excel(None)
+
+        btn_open_web.bind(on_press=_launch_prerna_browser)
+        btn_auto_fetch.bind(on_press=_auto_scan_and_load_dbt)
+        pop_prerna.open()
+
+    def _import_dbt_file_direct(self, file_path):
+        try:
+            dept_df = pd.read_csv(file_path, dtype=str) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str)
+            dept_df.columns = [str(c).strip() for c in dept_df.columns]
+            if not any('student sr' in c.lower() or 'sr no' in c.lower() for c in dept_df.columns):
+                dept_df = pd.read_csv(file_path, dtype=str, skiprows=1) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str, skiprows=1)
+                dept_df.columns = [str(c).strip() for c in dept_df.columns]
+
+            sr_col = next((c for c in dept_df.columns if 'student sr' in c.lower() or 'sr no' in c.lower()), None)
+            if not sr_col:
+                self.popup('Format Alert', "Prerna Excel me 'Student SR No.' column nahi mila!"); return
+
+            status_col = next((c for c in dept_df.columns if 'payment status' in c.lower() or 'status' in c.lower()), 'Payment Status')
+            acc_col = next((c for c in dept_df.columns if 'account no' in c.lower() or 'a/c' in c.lower()), 'Payment Account No')
+            tx_col = next((c for c in dept_df.columns if 'transaction id' in c.lower()), 'Transaction ID')
+            bank_col = next((c for c in dept_df.columns if 'bank name' in c.lower()), 'Payment Bank Name')
+
+            dept_lookup = {}
+            for _, d_row in dept_df.iterrows():
+                clean_d_sr = str(d_row.get(sr_col, '')).strip().split('.')[0]
+                if clean_d_sr and clean_d_sr.lower() != 'nan':
+                    dept_lookup[clean_d_sr] = d_row
+
+            match_counter = 0
+            for sr_id in list(self.dbt_fields.keys()):
+                clean_screen_sr = str(sr_id).strip().split('.')[0]
+                if clean_screen_sr in dept_lookup:
+                    match_counter += 1
+                    target_row = dept_lookup[clean_screen_sr]
+                    raw_acc = str(target_row.get(acc_col, '---')).strip()
+                    if 'e+' in raw_acc.lower():
+                        try:
+                            from decimal import Decimal
+                            raw_acc = f"{Decimal(raw_acc):.0f}"
+                        except Exception:
+                            pass
+                    p_status = str(target_row.get(status_col, 'Pending')).strip()
+                    p_tx = str(target_row.get(tx_col, '---')).strip()
+                    p_bank = str(target_row.get(bank_col, '---')).strip()
+
+                    self.dbt_fields[sr_id]['status'] = p_status if p_status and p_status != '-' else 'Pending'
+                    self.dbt_fields[sr_id]['acc'] = raw_acc if raw_acc and raw_acc not in ['nan', '-'] else '---'
+                    self.dbt_fields[sr_id]['tx'] = p_tx if p_tx and p_tx not in ['nan', '-'] else '---'
+                    self.dbt_fields[sr_id]['bank'] = p_bank if p_bank and p_bank not in ['nan', '-'] else '---'
+
+            if match_counter > 0:
+                self.rebuild_dbt_ui_from_memory()
+                self.popup('Prerna Sync Success', f"Prerna Portal se {match_counter} bachhon ka DBT data auto-load ho gaya!\nAb 'SAVE DBT DATA' dabakar lock karein.")
+            else:
+                self.popup('SR Mismatch', 'Selected Class ke bachhon ka SR No. Prerna file se match nahi hua.')
+        except Exception as ex:
+            self.popup('Prerna Sync Error', str(ex))
 
     def generate_school_consolidated_dbt_pdf(self):
         import os, re
