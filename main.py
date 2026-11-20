@@ -50,21 +50,34 @@ def capture_mobile_camera_safe(save_path, on_success_callback, popup_func):
             perms.append(Permission.READ_MEDIA_IMAGES)
         request_permissions(perms)
 
-        from plyer import camera
+        from jnius import autoclass
+        from android import activity
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Intent = autoclass('android.content.Intent')
+        MediaStore = autoclass('android.provider.MediaStore')
+        Uri = autoclass('android.net.Uri')
+        File = autoclass('java.io.File')
+        StrictMode = autoclass('android.os.StrictMode')
+        VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
+        StrictMode.setVmPolicy(VmPolicyBuilder().build())
+
         os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-        private_cam_path = os.path.join(DATA_DIR, "cam_temp_" + os.path.basename(save_path))
+        temp_cam_file = os.path.join(DATA_DIR, "cam_" + os.path.basename(save_path))
 
-        def _done(fp):
-            final_fp = fp if (fp and os.path.exists(fp)) else private_cam_path
-            if os.path.exists(final_fp):
-                if os.path.abspath(final_fp) != os.path.abspath(save_path):
-                    shutil.copy(final_fp, save_path)
-                on_success_callback(save_path)
+        def on_activity_result(request_code, result_code, intent):
+            if request_code == 9001:
+                activity.unbind(on_activity_result=on_activity_result)
+                if result_code == -1 and os.path.exists(temp_cam_file):
+                    if os.path.abspath(temp_cam_file) != os.path.abspath(save_path):
+                        shutil.copy(temp_cam_file, save_path)
+                    Clock.schedule_once(lambda dt: on_success_callback(save_path), 0.1)
 
-        camera.take_picture(filename=private_cam_path, on_complete=_done)
-    except Exception:
-        popup_func('Camera Info', 'Please use BROWSE / GALLERY button to select photo from Mobile Gallery.')
-
+        activity.bind(on_activity_result=on_activity_result)
+        cam_intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+        cam_intent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(File(temp_cam_file)))
+        PythonActivity.mActivity.startActivityForResult(cam_intent, 9001)
+    except Exception as e:
+        popup_func('Camera Info', f'Could not open camera directly. Please use GALLERY button.\n({str(e)})')
 # 4. Windows और Android दोनों पर PDF/Excel खोलने का सुरक्षित फ़ंक्शन
 def open_file_cross_platform(filepath, operation="open"):
     try:
@@ -692,11 +705,17 @@ class DashboardScreen(Screen):
         Window.bind(on_key_down=self.on_keyboard_down)
 
     def popup(self, title, msg):
-        pl = BoxLayout(orientation='vertical', padding=20, spacing=10)
-        pl.add_widget(Label(text=msg, halign='center', color=(0,0,0,1)))
-        cb = Button(text='OK', size_hint_y=None, height=40, background_color=(0.05, 0.55, 0.25, 1))
-        pl.add_widget(cb); pop = Popup(title=title, content=pl, size_hint=(0.5, 0.35))
-        cb.bind(on_press=pop.dismiss); pop.open()
+        is_mob = (kivy_platform != 'win')
+        pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 20, spacing=dp(12) if is_mob else 10)
+        lbl = Label(text=str(msg), halign='center', valign='middle', color=(1, 1, 1, 1), font_size=sp(14) if is_mob else 14)
+        lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(10), None)))
+        pl.add_widget(lbl)
+        cb = Button(text='OK', size_hint_y=None, height=dp(44) if is_mob else 40, background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(15) if is_mob else 14)
+        pl.add_widget(cb)
+        pop = Popup(title=str(title), content=pl, size_hint=(0.90, 0.38) if is_mob else (0.5, 0.35), background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        cb.bind(on_press=pop.dismiss)
+        pop.open()
+
 
     def show_welcome(self):
         self.content_area.clear_widgets()
@@ -3608,7 +3627,7 @@ class DashboardScreen(Screen):
         grid = GridLayout(cols=11, spacing=(dp(4), dp(6)) if is_mob else (4, 6), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=5)
         grid.bind(minimum_height=grid.setter('height'))
         
-        col_w_mdm = [dp(80), dp(145), dp(75), dp(75), dp(75), dp(75), dp(75), dp(75), dp(80), dp(80), dp(85)] if is_mob else [75, 135, 65, 65, 65, 65, 65, 65, 70, 70, 75]
+        col_w_mdm = [dp(80), dp(145), dp(75), dp(75), dp(75), dp(75), dp(75), dp(75), dp(80), dp(80), dp(85)] if is_mob else [75, 130, 65, 65, 65, 65, 65, 65, 70, 70, 80]
         if is_mob:
             grid.width = sum(col_w_mdm)
         grid.cols_minimum = {i: col_w_mdm[i] for i in range(11)}
@@ -3629,34 +3648,35 @@ class DashboardScreen(Screen):
             try: dt_obj = datetime(y_val, m_num, d); day_name = dt_obj.strftime('%A'); w_day = dt_obj.weekday()
             except: day_name = "Sunday"; w_day = 6
             if w_day == 6:
-                grid.add_widget(Label(text=f"{d} (Sun)", color=(0.8,0.1,0.1,1), size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True))
-                grid.add_widget(Label(text='SUNDAY - CLOSED', color=(0.4,0.4,0.4,1), size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 14, bold=True))
+                grid.add_widget(Label(text=f"{d} (Sun)", color=(0.8,0.1,0.1,1), size_hint_x=None if is_mob else 1, width=col_w_mdm[0], size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True))
+                grid.add_widget(Label(text='SUNDAY - CLOSED', color=(0.4,0.4,0.4,1), size_hint_x=None if is_mob else 1, width=col_w_mdm[1], size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 14, bold=True))
                 for i in range(2, 11): grid.add_widget(Label(text='---', color=(0.7,0.7,0.7,1), size_hint_x=None if is_mob else 1, width=col_w_mdm[i], size_hint_y=None, height=row_h_mdm))
                 continue
             
-            grid.add_widget(Label(text=f"{d} ({day_name[:3]})", color=(0,0,0,1), size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True))
-            lbl_menu = Label(text=menu_chart_map.get(w_day, 'Special Meal'), color=(0.02, 0.3, 0.6, 1), size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, font_size=sp(11.5) if is_mob else 11, bold=True, halign='center', valign='middle')
+            grid.add_widget(Label(text=f"{d} ({day_name[:3]})", color=(0,0,0,1), size_hint_x=None if is_mob else 1, width=col_w_mdm[0], size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True))
+            lbl_menu = Label(text=menu_chart_map.get(w_day, 'Special Meal'), color=(0.02, 0.3, 0.6, 1), size_hint_x=None if is_mob else 1, width=col_w_mdm[1], size_hint_y=None, height=row_h_mdm, font_size=sp(11.5) if is_mob else 11, bold=True, halign='center', valign='middle')
             lbl_menu.bind(size=lbl_menu.setter('text_size'))
             grid.add_widget(lbl_menu)
             
-            t_pres = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
-            m_opt = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
-            h_wash = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
+            t_pres = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm[2], size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
+            m_opt = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm[3], size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
+            h_wash = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm[4], size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
             
-            if w_day==3:
-                suppl_in = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
-            else:
-                suppl_in = CustomText(text='---', disabled=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, halign='center')
-                
             if w_day==2:
-                milk_chk = CustomButton(text='YES', background_color=(0.7,0.1,0.1,1), size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True)
+                milk_chk = CustomButton(text='YES', background_color=(0.7,0.1,0.1,1), size_hint_x=None if is_mob else 1, width=col_w_mdm[5], size_hint_y=None, height=row_h_mdm, font_size=sp(12) if is_mob else 11, bold=True)
             else:
-                milk_chk = Label(text='---', size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
+                milk_chk = Label(text='---', size_hint_x=None if is_mob else 1, width=col_w_mdm[5], size_hint_y=None, height=row_h_mdm)
                 
-            fruit_lbl = Label(text='70' if w_day==0 else '0', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-            wheat_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-            rice_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-            cost_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
+            fruit_lbl = Label(text='70' if w_day==0 else '0', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[6], size_hint_y=None, height=row_h_mdm)
+
+            if w_day==3:
+                suppl_in = CustomText(text='0', size_hint_x=None if is_mob else 1, width=col_w_mdm[7], size_hint_y=None, height=row_h_mdm, halign='center', only_digits=True, max_chars=4)
+            else:
+                suppl_in = CustomText(text='---', disabled=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[7], size_hint_y=None, height=row_h_mdm, halign='center')
+
+            wheat_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[8], size_hint_y=None, height=row_h_mdm)
+            rice_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[9], size_hint_y=None, height=row_h_mdm)
+            cost_lbl = Label(text='0.00', color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[10], size_hint_y=None, height=row_h_mdm)
             
             if w_day == 2:
                 milk_chk.bind(on_press=lambda btn: [setattr(btn, 'text', 'YES' if btn.text=='NO' else 'NO'), setattr(btn, 'background_color', (0.05,0.5,0.1,1) if btn.text=='YES' else (0.7,0.1,0.1,1))])
@@ -3694,16 +3714,16 @@ class DashboardScreen(Screen):
             self.fruits_list.append(fruit_lbl); self.suppl_list.append(suppl_in)
             self.wheat_list.append(wheat_lbl); self.rice_list.append(rice_lbl); self.cost_list.append(cost_lbl)
             
-        grid.add_widget(Label(text="TOTAL", color=(0.8,0.1,0.1,1), font_size=sp(12) if is_mob else 12, bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm))
-        grid.add_widget(Label(text="Monthly Sum", color=(0,0,0,1), font_size=sp(11.5) if is_mob else 11, bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm))
-        self.tot_pres_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        self.tot_opt_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        self.tot_wash_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
+        grid.add_widget(Label(text="TOTAL", color=(0.8,0.1,0.1,1), font_size=sp(12) if is_mob else 12, bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[0], size_hint_y=None, height=row_h_mdm))
+        grid.add_widget(Label(text="Monthly Sum", color=(0,0,0,1), font_size=sp(11.5) if is_mob else 11, bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[1], size_hint_y=None, height=row_h_mdm))
+        self.tot_pres_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[2], size_hint_y=None, height=row_h_mdm)
+        self.tot_opt_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[3], size_hint_y=None, height=row_h_mdm)
+        self.tot_wash_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[4], size_hint_y=None, height=row_h_mdm)
         grid.add_widget(self.tot_pres_lbl); grid.add_widget(self.tot_opt_lbl); grid.add_widget(self.tot_wash_lbl)
-        grid.add_widget(Label(text="---", size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm))
-        self.tot_fruit_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        self.tot_suppl_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        self.tot_wheat_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
+        grid.add_widget(Label(text="---", size_hint_x=None if is_mob else 1, width=col_w_mdm[5], size_hint_y=None, height=row_h_mdm))
+        self.tot_fruit_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[6], size_hint_y=None, height=row_h_mdm)
+        self.tot_suppl_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[7], size_hint_y=None, height=row_h_mdm)
+        self.tot_wheat_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[8], size_hint_y=None, height=row_h_mdm)
         self.tot_rice_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
         self.tot_cost_lbl = Label(text="0.00", color=(0.8,0.1,0.1,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
         
@@ -4656,7 +4676,7 @@ class DashboardScreen(Screen):
                         last_final_balance = float(val_fb)
             except Exception: pass
             
-        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(415) if is_mob else 195, spacing=dp(8) if is_mob else 12, padding=dp(6) if is_mob else 10)
+        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(465) if is_mob else 195, spacing=dp(8) if is_mob else 12, padding=dp(6) if is_mob else 10)
         grant_master_tabs_list = []
         
         lbl_fs = sp(12.5) if is_mob else 13
