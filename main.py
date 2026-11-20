@@ -3381,7 +3381,7 @@ class DashboardScreen(Screen):
         if self.marks_sr.text.strip() == "" or self.class_spinner.text == 'Choose Class': return
         marks_data = {'SR No': [self.marks_sr.text], 'Class': [self.class_spinner.text], 'Exam Type': [self.exam_spinner.text]}
         for k, v in self.marks_fields.items(): marks_data[k] = [v.text]
-                try:
+        try:
             new_df = pd.DataFrame(marks_data)
             if not os.path.exists(MARKS_FILE): new_df.to_excel(MARKS_FILE, index=False)
             else: pd.concat([pd.read_excel(MARKS_FILE), new_df], ignore_index=True).to_excel(MARKS_FILE, index=False)
@@ -4056,7 +4056,7 @@ class DashboardScreen(Screen):
         lbl_fs = sp(12.5) if is_mob else 13
         inp_h = dp(42) if is_mob else 36
         inp_fs = sp(14) if is_mob else 14
-        inp_pad = [dp(6), dp(6)] if is_mob else
+        inp_pad = [dp(6), dp(6)] if is_mob else [6, 6]
 
         form_grid.add_widget(Label(text='Select Month:', color=(0,0,0,1), bold=True, font_size=lbl_fs))
         self.r_month = CustomSpinner(text='April', values=('January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'), size_hint_y=None, height=inp_h)
@@ -4507,27 +4507,6 @@ class DashboardScreen(Screen):
             self.reset_staff_fields_action(None)
             return
 
-                # 🆕 [केस C]: न्यू एंट्री मोड (अगर पुरानी फ़ाइल में वो आईडी मौजूद नहीं है)
-                new_row_df = pd.DataFrame([current_staff_data])
-                df = pd.concat([df, new_row_df], ignore_index=True)
-            else:
-                # यदि एक्सेल फ़ाइल मौजूद ही नहीं है, तो बिल्कुल फ्रेश टेबल बनाएं
-                df = pd.DataFrame([current_staff_data])
-                
-            # --- 📊 3. मास्टर कॉलम सॉर्टिंग सिंक ---
-            for col in ordered_columns:
-                if col not in df.columns:
-                    df[col] = ""
-            
-            # कॉलम्स का क्रम बिल्कुल लिस्ट के अनुसार व्यवस्थित करना
-            final_ordered_df = df[ordered_columns].copy()
-            final_ordered_df = final_ordered_df.astype(str).replace('nan', '')
-            final_ordered_df.to_excel(stf_file, index=False)
-                
-            self.current_loaded_staff_index = None
-            self.popup('System Message', 'New Staff Profile Registered with Designation Successfully!')
-            self.reset_staff_fields_action(None)
-            
         except Exception as e: 
             self.popup('Error', f"Saving Staff System Failed: {str(e)}")
 
