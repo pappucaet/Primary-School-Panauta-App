@@ -88,7 +88,6 @@ def compress_image_under_30kb(src_path, dest_path, max_kb=28):
     except Exception:
         return src_path
 
-# 📷 Android 11-15 असली कैमरा इंजन (परमिशन चेक + 30KB से कम कंप्रेस)
 def capture_mobile_camera_safe(save_path, on_success_callback, popup_func):
     try:
         from android.permissions import request_permissions, check_permission, Permission
@@ -98,45 +97,50 @@ def capture_mobile_camera_safe(save_path, on_success_callback, popup_func):
 
         def _launch_camera():
             try:
-                from jnius import autoclass, cast
+                from jnius import autoclass
                 from android import activity
                 PythonActivity = autoclass('org.kivy.android.PythonActivity')
                 Intent = autoclass('android.content.Intent')
                 MediaStore = autoclass('android.provider.MediaStore')
-                Uri = autoclass('android.net.Uri')
-                File = autoclass('java.io.File')
-                StrictMode = autoclass('android.os.StrictMode')
-                VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
-                StrictMode.setVmPolicy(VmPolicyBuilder().build())
+                FileOutputStream = autoclass('java.io.FileOutputStream')
+                CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
 
                 os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
                 temp_cam_file = os.path.join(DATA_DIR, "raw_cam_" + os.path.basename(save_path))
-                if os.path.exists(temp_cam_file):
-                    try: os.remove(temp_cam_file)
-                    except: pass
 
                 def on_activity_result(request_code, result_code, intent):
                     if request_code == 9001:
                         activity.unbind(on_activity_result=on_activity_result)
-                        if result_code == -1:
-                            if os.path.exists(temp_cam_file) and os.path.getsize(temp_cam_file) > 0:
-                                final_p = compress_image_under_30kb(temp_cam_file, save_path, max_kb=28)
-                                Clock.schedule_once(lambda dt: on_success_callback(final_p), 0.1)
-                            elif intent is not None and intent.getExtras() is not None:
-                                bmp = intent.getExtras().get("data")
-                                if bmp:
-                                    FileOutputStream = autoclass('java.io.FileOutputStream')
-                                    CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
-                                    fos = FileOutputStream(temp_cam_file)
-                                    bmp.compress(CompressFormat.JPEG, 70, fos)
-                                    fos.close()
+                        if result_code == -1 and intent is not None:
+                            try:
+                                extras = intent.getExtras()
+                                if extras is not None:
+                                    bmp = extras.get("data")
+                                    if bmp is not None:
+                                        fos = FileOutputStream(temp_cam_file)
+                                        bmp.compress(CompressFormat.JPEG, 85, fos)
+                                        fos.close()
+                                        final_p = compress_image_under_30kb(temp_cam_file, save_path, max_kb=28)
+                                        Clock.schedule_once(lambda dt: on_success_callback(final_p), 0.1)
+                                        return
+                                data_uri = intent.getData()
+                                if data_uri is not None:
+                                    resolver = PythonActivity.mActivity.getContentResolver()
+                                    inp = resolver.openInputStream(data_uri)
+                                    with open(temp_cam_file, "wb") as f_out:
+                                        buf = bytearray(8192)
+                                        while True:
+                                            n = inp.read(buf)
+                                            if n <= 0: break
+                                            f_out.write(bytes(buf[:n]))
+                                    inp.close()
                                     final_p = compress_image_under_30kb(temp_cam_file, save_path, max_kb=28)
                                     Clock.schedule_once(lambda dt: on_success_callback(final_p), 0.1)
+                            except Exception as cap_err:
+                                Clock.schedule_once(lambda dt: popup_func('Camera Save Info', str(cap_err)), 0.1)
 
                 activity.bind(on_activity_result=on_activity_result)
                 cam_intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                file_uri = Uri.fromFile(File(temp_cam_file))
-                cam_intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', file_uri))
                 PythonActivity.mActivity.startActivityForResult(cam_intent, 9001)
             except Exception as cam_err:
                 popup_func('Camera Info', f'Camera Error: {str(cam_err)}')
@@ -327,6 +331,11 @@ except ImportError:
     class SimpleSeries:
         def __init__(self, data):
             self.data = list(data)
+        @property
+        def empty(self):
+            return len(self.data) == 0
+        def __len__(self):
+            return len(self.data)
         def astype(self, t):
             return SimpleSeries([str(x) if x is not None else "" for x in self.data])
         @property
@@ -334,6 +343,10 @@ except ImportError:
             return self
         def strip(self):
             return SimpleSeries([str(x).strip() for x in self.data])
+        def lower(self):
+            return SimpleSeries([str(x).lower() for x in self.data])
+        def upper(self):
+            return SimpleSeries([str(x).upper() for x in self.data])
         def replace(self, old, new, regex=False, case=True):
             import re
             res = []
@@ -348,6 +361,10 @@ except ImportError:
         def isin(self, values):
             vals = set(values)
             return [x in vals for x in self.data]
+        def __ne__(self, other):
+            return [x != other for x in self.data]
+        def __eq__(self, other):
+            return [x == other for x in self.data]
         def __iter__(self):
             return iter(self.data)
         def __getitem__(self, idx):
@@ -1913,14 +1930,25 @@ class DashboardScreen(Screen):
             words_value = date_to_words_eng(value)
             if words_value and 'DATE OF BIRTH (IN WORDS)' in self.fields: self.fields['DATE OF BIRTH (IN WORDS)'].text = words_value
 
+    def _get_student_photo_filename(self):
+        sr_val = self.fields['SR NO'].text.strip().replace('.0', '') if 'SR NO' in self.fields else ''
+        nm_val = self.fields['NAME'].text.strip().replace(' ', '_') if 'NAME' in self.fields else ''
+        clean_nm = ''.join(c for c in nm_val if c.isalnum() or c == '_')
+        if sr_val:
+            return f"{sr_val}.jpg"
+        elif clean_nm:
+            return f"Student_{clean_nm}.jpg"
+        return "student_temp.jpg"
+
     def upload_photo_action(self, instance):
         def on_photo_picked(file_path):
-            if file_path:
-                # अस्थाई रूप से चुनी गई फोटो का पाथ सेव कर लेते हैं
-                self.selected_photo_path = file_path
-                self.photo_path_input.text = os.path.basename(file_path)
-                # स्क्रीन पर तुरंत दिखाने के लिए
-                self.student_photo.source = file_path
+            if file_path and os.path.exists(file_path):
+                fname = self._get_student_photo_filename()
+                dest_p = os.path.abspath(os.path.join(PHOTO_DIR, fname))
+                comp_p = compress_image_under_30kb(file_path, dest_p, max_kb=28)
+                self.selected_photo_path = comp_p
+                self.photo_path_input.text = fname
+                self.student_photo.source = comp_p
                 self.student_photo.reload()
 
         select_file_cross_platform(
@@ -1935,7 +1963,6 @@ class DashboardScreen(Screen):
                 if not isinstance(w, Spinner): w.text = ''
         if hasattr(self, 'photo_path_input'): self.photo_path_input.text = ''
         if hasattr(self, 'student_photo'): self.student_photo.source = get_exe_safe_path("logo.png") if os.path.exists(get_exe_safe_path("logo.png")) else ''
-    
     def load_form(self):
         self.content_area.clear_widgets(); self.current_view = 'registration'
         is_mob = (kivy_platform != 'win')
@@ -2269,9 +2296,8 @@ class DashboardScreen(Screen):
             btn_link.bind(on_press=link_sibling_action); pop.open()
 
     def capture_live_camera_action(self, instance):
-        sr_name = self.fields['SR NO'].text.strip()
-        img_name = f"{sr_name}.jpg" if sr_name else "captured_student.jpg"
-        dest_path = os.path.abspath(os.path.join(PHOTO_DIR, img_name))
+        fname = self._get_student_photo_filename()
+        dest_path = os.path.abspath(os.path.join(PHOTO_DIR, fname))
 
         if kivy_platform == 'win':
             try:
@@ -2280,26 +2306,27 @@ class DashboardScreen(Screen):
                 ret, frame = cap.read()
                 if ret:
                     cv2.imwrite(dest_path, frame)
-                    self.selected_photo_path = dest_path
-                    self.photo_path_input.text = img_name
-                    self.student_photo.source = dest_path
+                    comp_p = compress_image_under_30kb(dest_path, dest_path, max_kb=28)
+                    self.selected_photo_path = comp_p
+                    self.photo_path_input.text = fname
+                    self.student_photo.source = comp_p
                     self.student_photo.reload()
-                    self.popup('Camera System', 'Live photo snapped successfully!')
-                else: 
+                    self.popup('Camera System', f'Photo saved as {fname}!')
+                else:
                     self.popup('Camera Error', 'Could not access the live webcam feed!')
                 cap.release()
-            except Exception as e: 
+            except Exception as e:
                 self.popup('Error', str(e))
         else:
-            # Android 11-15 सुरक्षित कैमरा कॉल
             def on_cam_ok(fp):
                 self.selected_photo_path = fp
                 self.photo_path_input.text = os.path.basename(fp)
                 self.student_photo.source = fp
                 self.student_photo.reload()
-                self.popup('Camera System', 'Live photo snapped successfully!')
+                self.popup('Camera System', f'Photo saved as {os.path.basename(fp)}!')
 
             capture_mobile_camera_safe(dest_path, on_cam_ok, self.popup)
+   
     def open_calendar_popup(self, target_input):
         is_mob = (kivy_platform != 'win')
         pl = BoxLayout(orientation='vertical', padding=dp(10) if is_mob else 10, spacing=dp(8) if is_mob else 10)
@@ -5082,12 +5109,25 @@ class DashboardScreen(Screen):
         btn_close = Button(text='CLOSE', size_hint_y=None, height=dp(44) if is_mob else 40, background_color=(0.7,0,0,1), bold=True, font_size=sp(14) if is_mob else 14)
         btn_close.bind(on_press=pop.dismiss); pl.add_widget(btn_close); pop.open()
 
+    def _get_staff_photo_filename(self):
+        ehrms_val = self.staff_fields['EHRMS ID'].text.strip().replace('.0', '') if 'EHRMS ID' in self.staff_fields else ''
+        t_nm = self.staff_fields["TEACHER'S NAME"].text.strip().replace(' ', '_') if "TEACHER'S NAME" in self.staff_fields else ''
+        clean_nm = ''.join(c for c in t_nm if c.isalnum() or c == '_')
+        if ehrms_val:
+            return f"{ehrms_val}.jpg"
+        elif clean_nm:
+            return f"Staff_{clean_nm}.jpg"
+        return "staff_temp.jpg"
+
     def browse_staff_photo_action(self, instance):
         def on_staff_photo_picked(fp):
-            if fp:
-                self.selected_staff_photo_path = fp
-                self.staff_photo_path.text = os.path.basename(fp)
-                self.staff_photo.source = fp
+            if fp and os.path.exists(fp):
+                fname = self._get_staff_photo_filename()
+                dest_p = os.path.abspath(os.path.join(STAFF_PHOTO_DIR, fname))
+                comp_p = compress_image_under_30kb(fp, dest_p, max_kb=28)
+                self.selected_staff_photo_path = comp_p
+                self.staff_photo_path.text = fname
+                self.staff_photo.source = comp_p
                 self.staff_photo.reload()
 
         select_file_cross_platform(
@@ -5097,9 +5137,8 @@ class DashboardScreen(Screen):
         )
 
     def capture_staff_camera_action(self, instance):
-        stf_id = self.staff_fields['EHRMS ID'].text.strip()
-        img_name = f"{stf_id}.jpg" if stf_id else "captured_teacher.jpg"
-        dest_path = os.path.abspath(os.path.join(STAFF_PHOTO_DIR, img_name))
+        fname = self._get_staff_photo_filename()
+        dest_path = os.path.abspath(os.path.join(STAFF_PHOTO_DIR, fname))
 
         if kivy_platform == 'win':
             try:
@@ -5108,24 +5147,24 @@ class DashboardScreen(Screen):
                 ret, frame = cap.read()
                 if ret:
                     cv2.imwrite(dest_path, frame)
-                    self.selected_staff_photo_path = dest_path
-                    self.staff_photo_path.text = img_name
-                    self.staff_photo.source = dest_path
+                    comp_p = compress_image_under_30kb(dest_path, dest_path, max_kb=28)
+                    self.selected_staff_photo_path = comp_p
+                    self.staff_photo_path.text = fname
+                    self.staff_photo.source = comp_p
                     self.staff_photo.reload()
-                    self.popup('Camera', 'Staff Photo Captured Successfully!')
+                    self.popup('Camera', f'Staff Photo saved as {fname}!')
                 else:
                     self.popup('Camera Error', 'Could not access active webcam!')
                 cap.release()
             except Exception as e:
                 self.popup('Error', str(e))
         else:
-            # Android 11-15 सुरक्षित कैमरा कॉल
             def on_stf_cam_ok(fp):
                 self.selected_staff_photo_path = fp
                 self.staff_photo_path.text = os.path.basename(fp)
                 self.staff_photo.source = fp
                 self.staff_photo.reload()
-                self.popup('Camera', 'Staff Photo Captured Successfully!')
+                self.popup('Camera', f'Staff Photo saved as {os.path.basename(fp)}!')
 
             capture_mobile_camera_safe(dest_path, on_stf_cam_ok, self.popup)
 
@@ -5819,7 +5858,11 @@ class DashboardScreen(Screen):
 
         def trigger_live_camera_capture(s_no_key, btn_target, img_preview_widget):
             os.makedirs('SMC_Photos', exist_ok=True)
-            dest_path = os.path.abspath(os.path.join('SMC_Photos', f"SMC_{current_session.replace('-','_')}_{s_no_key}.jpg"))
+            m_name_w = self.smc_inputs_map.get(s_no_key, (None,))[0]
+            raw_m_nm = m_name_w.text.strip().replace(' ', '_') if hasattr(m_name_w, 'text') else ''
+            clean_m_nm = ''.join(c for c in raw_m_nm if c.isalnum() or c == '_')
+            name_part = f"_{clean_m_nm}" if clean_m_nm else ""
+            dest_path = os.path.abspath(os.path.join('SMC_Photos', f"SMC_{current_session.replace('-','_')}_{s_no_key}{name_part}.jpg"))
 
             def _apply_smc_photo(final_p):
                 if final_p and os.path.exists(final_p):
@@ -5852,7 +5895,8 @@ class DashboardScreen(Screen):
                         if k % 256 == 27: break
                         elif k % 256 == 32:
                             cv2.imwrite(dest_path, frame)
-                            _apply_smc_photo(dest_path)
+                            comp_p = compress_image_under_30kb(dest_path, dest_path, max_kb=28)
+                            _apply_smc_photo(comp_p)
                             break
                     cam.release(); cv2.destroyAllWindows()
                 except Exception:
@@ -6283,13 +6327,18 @@ class DashboardScreen(Screen):
         right_photo_panel.add_widget(self.cook_photo_widget)
         
         self.cook_photo_path_str = ""
+
+        def _get_cook_photo_path():
+            os.makedirs('Cook_Photos', exist_ok=True)
+            c_nm = self.cook_fields['Name of MDM Cook'].text.strip().replace(' ', '_')
+            clean_c_nm = ''.join(c for c in c_nm if c.isalnum() or c == '_') or 'Cook'
+            c_id = self.cook_fields['Aadhar Number'].text.strip() or self.cook_fields['Bank Account No'].text.strip()
+            id_suffix = f"_{c_id[-4:]}" if len(c_id) >= 4 else (f"_{c_id}" if c_id else "")
+            return os.path.abspath(os.path.join('Cook_Photos', f"Cook_{clean_c_nm}{id_suffix}.jpg"))
         
         btn_capture_live = Button(text="CAMERA" if is_mob else "📸 LIVE Snap Camera", font_size=sp(12) if is_mob else 11, bold=True, size_hint=(None, None) if is_mob else (1, None), width=dp(105), height=dp(38) if is_mob else 36, background_color=(0.1, 0.45, 0.65, 1))
         def local_snap_action(instance):
-            os.makedirs('Cook_Photos', exist_ok=True)
-            import random
-            rand_id = random.randint(1000, 9999)
-            dest_path = os.path.abspath(os.path.join('Cook_Photos', f"Cook_{current_session.replace('-','_')}_{rand_id}.jpg"))
+            dest_path = _get_cook_photo_path()
 
             if kivy_platform == 'win':
                 try:
@@ -6306,8 +6355,9 @@ class DashboardScreen(Screen):
                         if k % 256 == 27: break
                         elif k % 256 == 32:
                             cv2.imwrite(dest_path, frame)
-                            self.cook_photo_path_str = dest_path
-                            self.cook_photo_widget.source = dest_path
+                            comp_p = compress_image_under_30kb(dest_path, dest_path, max_kb=28)
+                            self.cook_photo_path_str = comp_p
+                            self.cook_photo_widget.source = comp_p
                             self.cook_photo_widget.reload()
                             btn_capture_live.text = "✅ SNAP CAPTURED"
                             btn_capture_live.background_color = (0.02, 0.45, 0.2, 1)
@@ -6331,15 +6381,10 @@ class DashboardScreen(Screen):
             def on_cook_photo_picked(p_path):
                 if p_path and os.path.exists(p_path):
                     try:
-                        os.makedirs('Cook_Photos', exist_ok=True)
-                        import random
-                        rand_id = random.randint(1000, 9999)
-                        dest_path = os.path.abspath(os.path.join('Cook_Photos', f"Cook_{current_session.replace('-','_')}_{rand_id}.jpg"))
-                        if os.path.abspath(p_path) != dest_path:
-                            import shutil
-                            shutil.copy(p_path, dest_path)
-                        self.cook_photo_path_str = dest_path
-                        self.cook_photo_widget.source = dest_path
+                        dest_path = _get_cook_photo_path()
+                        comp_p = compress_image_under_30kb(p_path, dest_path, max_kb=28)
+                        self.cook_photo_path_str = comp_p
+                        self.cook_photo_widget.source = comp_p
                         self.cook_photo_widget.reload()
                         btn_browse_gallery.text = "ATTACHED" if is_mob else "✅ ATTACHED"
                         btn_browse_gallery.background_color = (0.02, 0.45, 0.2, 1)
