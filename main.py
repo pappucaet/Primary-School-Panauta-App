@@ -7,13 +7,13 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 from kivy.utils import platform as kivy_platform
 from kivy.core.window import Window
 from kivy.metrics import dp, sp
+from kivy.clock import Clock
 
 if kivy_platform == 'win':
     Window.maximize()
 else:
     Window.softinput_mode = 'below_target'
 
-# 1. सॉफ़्टवेयर के अंदर पैक की गई तस्वीरों (logo, basic, आदि) का पक्का रास्ता लॉक करें
 if hasattr(sys, '_MEIPASS'):
     RESOURCE_DIR = sys._MEIPASS
 else:
@@ -28,72 +28,177 @@ def get_exe_safe_path(filename):
                 return full_path
     return filename
 
-# 2. डेटाबेस और फ़ोटो सेव करने के लिए स्थायी फोल्डर (DATA_DIR पहले परिभाषित करना ज़रूरी है)
 if kivy_platform == 'android':
     try:
         from android.storage import app_storage_path
         DATA_DIR = app_storage_path()
     except Exception:
         DATA_DIR = os.path.expanduser('~')
+    PUBLIC_EXPORT_DIR = '/storage/emulated/0/Download/Primary_School_Panauta'
 else:
     DATA_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'Primary_School_Panauta_Data')
+    PUBLIC_EXPORT_DIR = DATA_DIR
 
 os.makedirs(DATA_DIR, exist_ok=True)
+try:
+    os.makedirs(PUBLIC_EXPORT_DIR, exist_ok=True)
+except Exception:
+    PUBLIC_EXPORT_DIR = DATA_DIR
 os.chdir(DATA_DIR)
 
-# 3. Android 11-15 असली मोबाइल कैमरा इंजन (Pyjnius Parcelable Cast के साथ 100% वर्किंग)
+# 📸 फोटो को 30KB से कम साइज में कंप्रेस करने का इंजन (Windows + Android दोनों पर चलेगा)
+def compress_image_under_30kb(src_path, dest_path, max_kb=28):
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
+        try:
+            from PIL import Image as PILImage
+            img = PILImage.open(src_path)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            img.thumbnail((320, 400))
+            quality = 75
+            while quality >= 15:
+                img.save(dest_path, format="JPEG", quality=quality, optimize=True)
+                if os.path.getsize(dest_path) <= max_kb * 1024:
+                    return dest_path
+                quality -= 10
+            return dest_path
+        except ImportError:
+            if kivy_platform == 'android':
+                from jnius import autoclass
+                BitmapFactory = autoclass('android.graphics.BitmapFactory')
+                Bitmap = autoclass('android.graphics.Bitmap')
+                FileOutputStream = autoclass('java.io.FileOutputStream')
+                CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
+                bmp = BitmapFactory.decodeFile(src_path)
+                if bmp:
+                    scaled = Bitmap.createScaledBitmap(bmp, 240, 300, True)
+                    q = 75
+                    while q >= 15:
+                        fos = FileOutputStream(dest_path)
+                        scaled.compress(CompressFormat.JPEG, q, fos)
+                        fos.close()
+                        if os.path.getsize(dest_path) <= max_kb * 1024:
+                            return dest_path
+                        q -= 15
+                    return dest_path
+        if os.path.abspath(src_path) != os.path.abspath(dest_path):
+            shutil.copy(src_path, dest_path)
+        return dest_path
+    except Exception:
+        return src_path
+
+# 📷 Android 11-15 असली कैमरा इंजन (परमिशन चेक + 30KB से कम कंप्रेस)
 def capture_mobile_camera_safe(save_path, on_success_callback, popup_func):
     try:
-        from android.permissions import request_permissions, Permission
+        from android.permissions import request_permissions, check_permission, Permission
         perms = [Permission.CAMERA, Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE]
         if hasattr(Permission, 'READ_MEDIA_IMAGES'):
             perms.append(Permission.READ_MEDIA_IMAGES)
-        request_permissions(perms)
 
-        from jnius import autoclass, cast
-        from android import activity
-        PythonActivity = autoclass('org.kivy.android.PythonActivity')
-        Intent = autoclass('android.content.Intent')
-        MediaStore = autoclass('android.provider.MediaStore')
-        Uri = autoclass('android.net.Uri')
-        File = autoclass('java.io.File')
-        StrictMode = autoclass('android.os.StrictMode')
-        VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
-        StrictMode.setVmPolicy(VmPolicyBuilder().build())
+        def _launch_camera():
+            try:
+                from jnius import autoclass, cast
+                from android import activity
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                Intent = autoclass('android.content.Intent')
+                MediaStore = autoclass('android.provider.MediaStore')
+                Uri = autoclass('android.net.Uri')
+                File = autoclass('java.io.File')
+                StrictMode = autoclass('android.os.StrictMode')
+                VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
+                StrictMode.setVmPolicy(VmPolicyBuilder().build())
 
-        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-        temp_cam_file = os.path.join(DATA_DIR, "cam_" + os.path.basename(save_path))
-        if os.path.exists(temp_cam_file):
-            try: os.remove(temp_cam_file)
-            except: pass
+                os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+                temp_cam_file = os.path.join(DATA_DIR, "raw_cam_" + os.path.basename(save_path))
+                if os.path.exists(temp_cam_file):
+                    try: os.remove(temp_cam_file)
+                    except: pass
 
-        def on_activity_result(request_code, result_code, intent):
-            if request_code == 9001:
-                activity.unbind(on_activity_result=on_activity_result)
-                if result_code == -1:
-                    if os.path.exists(temp_cam_file):
-                        if os.path.abspath(temp_cam_file) != os.path.abspath(save_path):
-                            shutil.copy(temp_cam_file, save_path)
-                        Clock.schedule_once(lambda dt: on_success_callback(save_path), 0.1)
-                    elif intent is not None and intent.getExtras() is not None:
-                        bmp = intent.getExtras().get("data")
-                        if bmp:
-                            FileOutputStream = autoclass('java.io.FileOutputStream')
-                            CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
-                            fos = FileOutputStream(save_path)
-                            bmp.compress(CompressFormat.JPEG, 95, fos)
-                            fos.close()
-                            Clock.schedule_once(lambda dt: on_success_callback(save_path), 0.1)
+                def on_activity_result(request_code, result_code, intent):
+                    if request_code == 9001:
+                        activity.unbind(on_activity_result=on_activity_result)
+                        if result_code == -1:
+                            if os.path.exists(temp_cam_file) and os.path.getsize(temp_cam_file) > 0:
+                                final_p = compress_image_under_30kb(temp_cam_file, save_path, max_kb=28)
+                                Clock.schedule_once(lambda dt: on_success_callback(final_p), 0.1)
+                            elif intent is not None and intent.getExtras() is not None:
+                                bmp = intent.getExtras().get("data")
+                                if bmp:
+                                    FileOutputStream = autoclass('java.io.FileOutputStream')
+                                    CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
+                                    fos = FileOutputStream(temp_cam_file)
+                                    bmp.compress(CompressFormat.JPEG, 70, fos)
+                                    fos.close()
+                                    final_p = compress_image_under_30kb(temp_cam_file, save_path, max_kb=28)
+                                    Clock.schedule_once(lambda dt: on_success_callback(final_p), 0.1)
 
-        activity.bind(on_activity_result=on_activity_result)
-        cam_intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        file_uri = Uri.fromFile(File(temp_cam_file))
-        cam_intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', file_uri))
-        PythonActivity.mActivity.startActivityForResult(cam_intent, 9001)
+                activity.bind(on_activity_result=on_activity_result)
+                cam_intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                file_uri = Uri.fromFile(File(temp_cam_file))
+                cam_intent.putExtra(MediaStore.EXTRA_OUTPUT, cast('android.os.Parcelable', file_uri))
+                PythonActivity.mActivity.startActivityForResult(cam_intent, 9001)
+            except Exception as cam_err:
+                popup_func('Camera Info', f'Camera Error: {str(cam_err)}')
+
+        if not check_permission(Permission.CAMERA):
+            def _on_perm(permissions, grants):
+                if any(grants):
+                    Clock.schedule_once(lambda dt: _launch_camera(), 0.2)
+                else:
+                    popup_func('Permission Required', 'Please Allow Camera permission to capture photo.')
+            request_permissions(perms, _on_perm)
+        else:
+            _launch_camera()
     except Exception as e:
         popup_func('Camera Info', f'Camera Error: {str(e)}')
 
-# 5. Android 11-15 असली सिस्टम गैलरी और Excel फ़ाइल पिकर (Scoped Storage के साथ 100% वर्किंग)
+# 📄 Windows + Android दोनों पर PDF/Excel खोलने और Downloads फ़ोल्डर में दिखाने का इंजन
+def open_file_cross_platform(filepath, operation="open"):
+    try:
+        abs_path = os.path.abspath(filepath)
+        # Android पर फ़ाइल को सीधे फोन के Downloads/Primary_School_Panauta में भी कॉपी करें ताकि यूजर देख सके
+        if kivy_platform == 'android' and os.path.exists(abs_path):
+            try:
+                os.makedirs(PUBLIC_EXPORT_DIR, exist_ok=True)
+                pub_copy = os.path.join(PUBLIC_EXPORT_DIR, os.path.basename(abs_path))
+                if os.path.abspath(pub_copy) != abs_path:
+                    shutil.copy(abs_path, pub_copy)
+                    abs_path = pub_copy
+            except Exception:
+                pass
+
+        if kivy_platform == 'win':
+            os.startfile(abs_path, operation)
+        elif kivy_platform == 'android':
+            from jnius import autoclass
+            StrictMode = autoclass('android.os.StrictMode')
+            VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
+            StrictMode.setVmPolicy(VmPolicyBuilder().build())
+
+            PythonActivity = autoclass('org.kivy.android.PythonActivity')
+            Intent = autoclass('android.content.Intent')
+            Uri = autoclass('android.net.Uri')
+            File = autoclass('java.io.File')
+
+            intent = Intent(Intent.ACTION_VIEW)
+            uri = Uri.fromFile(File(abs_path))
+            if abs_path.lower().endswith('.pdf'):
+                mime = "application/pdf"
+            elif abs_path.lower().endswith(('.xlsx', '.xls')):
+                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            else:
+                mime = "*/*"
+            intent.setDataAndType(uri, mime)
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            PythonActivity.mActivity.startActivity(Intent.createChooser(intent, "Open Report"))
+    except Exception as e:
+        print("File Open Log:", str(e))
+
+LOGO_FILE = get_exe_safe_path('logo.png')
+BASIC_FILE = get_exe_safe_path('basic.png')
+
+# 📂 Android 11-15 असली सिस्टम गैलरी और Excel फ़ाइल पिकर (100% वर्किंग)
 def select_file_cross_platform(title_text, filters_list, on_file_selected_callback):
     if kivy_platform == 'win':
         try:
@@ -108,21 +213,19 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
             print("Windows Picker Error:", str(e))
     else:
         try:
-            from android.permissions import request_permissions, Permission
-            perms = [Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE]
-            if hasattr(Permission, 'READ_MEDIA_IMAGES'):
-                perms.append(Permission.READ_MEDIA_IMAGES)
-            request_permissions(perms)
-
             from jnius import autoclass
             from android import activity
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
             Intent = autoclass('android.content.Intent')
 
             is_image_pick = any(ext in str(filters_list).lower() for ext in ['jpg', 'png', 'jpeg', 'image'])
-            pick_intent = Intent(Intent.ACTION_GET_CONTENT)
-            pick_intent.setType("image/*" if is_image_pick else "*/*")
-            pick_intent.addCategory(Intent.CATEGORY_OPENABLE)
+            if is_image_pick:
+                pick_intent = Intent(Intent.ACTION_PICK)
+                pick_intent.setType("image/*")
+            else:
+                pick_intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+                pick_intent.addCategory(Intent.CATEGORY_OPENABLE)
+                pick_intent.setType("*/*")
 
             def on_file_result(request_code, result_code, intent):
                 if request_code == 9002:
@@ -140,8 +243,8 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
                             elif ".xls" in uri_str and ".xlsx" not in uri_str: ext = ".xls"
 
                             import random
-                            local_copy = os.path.join(DATA_DIR, f"picked_{random.randint(10000,99999)}{ext}")
-                            with open(local_copy, "wb") as f_out:
+                            raw_copy = os.path.join(DATA_DIR, f"picked_{random.randint(10000,99999)}{ext}")
+                            with open(raw_copy, "wb") as f_out:
                                 buf = bytearray(8192)
                                 while True:
                                     n = input_stream.read(buf)
@@ -149,12 +252,19 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
                                         break
                                     f_out.write(bytes(buf[:n]))
                             input_stream.close()
-                            Clock.schedule_once(lambda dt: on_file_selected_callback(local_copy), 0.1)
+
+                            if is_image_pick:
+                                comp_copy = os.path.join(DATA_DIR, f"comp_{random.randint(10000,99999)}.jpg")
+                                final_file = compress_image_under_30kb(raw_copy, comp_copy, max_kb=28)
+                            else:
+                                final_file = raw_copy
+
+                            Clock.schedule_once(lambda dt: on_file_selected_callback(final_file), 0.1)
                         except Exception as copy_err:
                             print("Uri Copy Error:", str(copy_err))
 
             activity.bind(on_activity_result=on_file_result)
-            PythonActivity.mActivity.startActivityForResult(Intent.createChooser(pick_intent, title_text), 9002)
+            PythonActivity.mActivity.startActivityForResult(pick_intent, 9002)
         except Exception as e:
             print("Android Native Picker Error:", str(e))
 import os
@@ -576,59 +686,456 @@ class LoginScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         is_mob = (kivy_platform != 'win')
+        self.USERS_FILE = 'Users_Database.xlsx'
+        self.UDISE_CACHE_FILE = 'UDISE_Master.xlsx'
+        self.USER_PHOTO_DIR = 'User_Photos'
+        os.makedirs(self.USER_PHOTO_DIR, exist_ok=True)
+        self.login_direct_photo_path = ""
+
         main = BoxLayout(orientation='vertical', padding=dp(12) if is_mob else 20)
         with main.canvas.before:
-            Color(0.93, 0.94, 0.96, 1) 
+            Color(0.93, 0.94, 0.96, 1)
             self.bg = Rectangle(size=Window.size, pos=main.pos)
         main.bind(size=lambda ins, val: setattr(self.bg, 'size', ins.size), pos=lambda ins, val: setattr(self.bg, 'pos', main.pos))
-        
+
         if is_mob:
-            card = BoxLayout(orientation='vertical', padding=(dp(20), dp(25)), spacing=dp(12), size_hint=(0.96, 0.96), pos_hint={'center_x':0.5, 'center_y':0.5})
+            card = BoxLayout(orientation='vertical', padding=(dp(18), dp(16)), spacing=dp(8), size_hint=(0.96, 0.97), pos_hint={'center_x': 0.5, 'center_y': 0.5})
         else:
-            card = BoxLayout(orientation='vertical', padding=(40,25,40,25), spacing=10, size_hint=(None,None), size=(490,650), pos_hint={'center_x':0.5, 'center_y':0.5})
+            card = BoxLayout(orientation='vertical', padding=(40, 20, 40, 20), spacing=9, size_hint=(None, None), size=(510, 680), pos_hint={'center_x': 0.5, 'center_y': 0.5})
         with card.canvas.before:
             Color(1, 1, 1, 1)
             self.cd = Rectangle(size=card.size, pos=card.pos)
         card.bind(size=lambda ins, val: setattr(self.cd, 'size', ins.size), pos=lambda ins, val: setattr(self.cd, 'pos', ins.pos))
-        
-        resolved_LOGO_FILE = get_exe_safe_path('logo.png')
-        if os.path.exists(resolved_LOGO_FILE): 
-            card.add_widget(Image(source=resolved_LOGO_FILE, size_hint=(None,None), size=(dp(120),dp(120)) if is_mob else (130,130), pos_hint={'center_x':0.5}))
-        else:
-            card.add_widget(BoxLayout(size_hint_y=None, height=130))
-            
-        card.add_widget(Label(text='PRIMARY SCHOOL PANAUTA', font_size=sp(22) if is_mob else 24, bold=True, color=(0.02, 0.4, 0.15, 1), halign='center'))
-        card.add_widget(Label(text='UDISE Code - 09191204201', font_size=sp(16) if is_mob else 16, bold=True, color=(0.1, 0.3, 0.2, 1), halign='center'))
-        card.add_widget(Label(text='Block: Wazirganj  |  District: Budaun', font_size=sp(14) if is_mob else 14, color=(0.3, 0.4, 0.35, 1), bold=True, halign='center'))
 
-        card.add_widget(Label(text='User ID', font_size=sp(15) if is_mob else 14, bold=True, color=(0,0,0,1), size_hint_y=None, height=dp(26) if is_mob else 22, halign='left'))
-        self.username = TextInput(multiline=False, size_hint_y=None, height=dp(48) if is_mob else 40, text='admin', font_size=sp(16) if is_mob else 16, padding=[dp(10), dp(10)], background_color=(0.95,0.97,0.95,1))
+        # लॉगिन स्क्रीन पर यूज़र फ़ोटो + छोटा आइकन कैप्चर बॉक्स
+        top_avatar_row = BoxLayout(orientation='horizontal', size_hint=(None, None), size=(dp(150), dp(96)) if is_mob else (165, 108), spacing=dp(8), pos_hint={'center_x': 0.5})
+        
+        default_logo = get_exe_safe_path('logo.png')
+        self.login_user_photo = Image(
+            source=default_logo if os.path.exists(default_logo) else '',
+            size_hint=(None, None),
+            size=(dp(88), dp(94)) if is_mob else (98, 105),
+            allow_stretch=True,
+            keep_ratio=False
+        )
+        top_avatar_row.add_widget(self.login_user_photo)
+
+        mini_cam_box = BoxLayout(orientation='vertical', size_hint=(None, None), size=(dp(52), dp(94)) if is_mob else (56, 105), spacing=dp(4), padding=(0, dp(8)))
+        btn_mini_cam = Button(text='CAM', font_size=sp(10.5) if is_mob else 10, bold=True, background_color=(0.05, 0.45, 0.7, 1))
+        btn_mini_gal = Button(text='GAL', font_size=sp(10.5) if is_mob else 10, bold=True, background_color=(0.2, 0.25, 0.3, 1))
+        mini_cam_box.add_widget(btn_mini_cam)
+        mini_cam_box.add_widget(btn_mini_gal)
+        top_avatar_row.add_widget(mini_cam_box)
+        card.add_widget(top_avatar_row)
+
+        self.lbl_welcome_user = Label(text='PRIMARY SCHOOL PANAUTA', font_size=sp(19) if is_mob else 22, bold=True, color=(0.02, 0.4, 0.15, 1), size_hint_y=None, height=dp(26) if is_mob else 28, halign='center')
+        self.lbl_school_sub = Label(text='School ERP & Management Portal', font_size=sp(12.5) if is_mob else 13.5, bold=True, color=(0.25, 0.35, 0.3, 1), size_hint_y=None, height=dp(20) if is_mob else 22, halign='center')
+        card.add_widget(self.lbl_welcome_user)
+        card.add_widget(self.lbl_school_sub)
+
+        card.add_widget(Label(text='Mobile Number (or Admin ID)', font_size=sp(14) if is_mob else 13.5, bold=True, color=(0, 0, 0, 1), size_hint_y=None, height=dp(22) if is_mob else 22, halign='left'))
+        self.username = TextInput(multiline=False, size_hint_y=None, height=dp(44) if is_mob else 40, hint_text='Enter 10-digit Mobile No.', font_size=sp(15) if is_mob else 15, padding=[dp(10), dp(10)], background_color=(0.95, 0.97, 0.95, 1))
         card.add_widget(self.username)
-        card.add_widget(Label(text='Password', font_size=sp(15) if is_mob else 14, bold=True, color=(0,0,0,1), size_hint_y=None, height=dp(26) if is_mob else 22, halign='left'))
-        self.password = TextInput(password=True, multiline=False, size_hint_y=None, height=dp(48) if is_mob else 40, text='1234', font_size=sp(16) if is_mob else 16, padding=[dp(10), dp(10)], background_color=(0.95,0.97,0.95,1))
+
+        card.add_widget(Label(text='Password', font_size=sp(14) if is_mob else 13.5, bold=True, color=(0, 0, 0, 1), size_hint_y=None, height=dp(22) if is_mob else 22, halign='left'))
+        self.password = TextInput(password=True, multiline=False, size_hint_y=None, height=dp(44) if is_mob else 40, hint_text='Enter Password', font_size=sp(15) if is_mob else 15, padding=[dp(10), dp(10)], background_color=(0.95, 0.97, 0.95, 1))
         card.add_widget(self.password)
-        
-        btns = BoxLayout(spacing=dp(15) if is_mob else 15, size_hint_y=None, height=dp(52) if is_mob else 45)
-        b1 = Button(text='Sign In', background_color=(0.05, 0.55, 0.25, 1), font_size=sp(16) if is_mob else 16, bold=True)
+        def on_login_mobile_change(inst, val):
+            mb = val.strip()
+            if len(mb) == 10 and os.path.exists(self.USERS_FILE):
+                try:
+                    df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                    for _, r in df_u.iterrows():
+                        if str(r.get('Mobile', '')).strip().replace('.0', '') == mb:
+                            u_nm = str(r.get('Name', '')).strip()
+                            u_pic = str(r.get('Photo', '')).strip()
+                            if u_nm and u_nm.lower() != 'nan':
+                                self.lbl_welcome_user.text = f"WELCOME, {u_nm}"
+                            if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
+                                self.login_user_photo.source = u_pic
+                                self.login_user_photo.reload()
+                            return
+                except Exception:
+                    pass
+            if not self.login_direct_photo_path:
+                self.lbl_welcome_user.text = 'PRIMARY SCHOOL PANAUTA'
+                if os.path.exists(default_logo):
+                    self.login_user_photo.source = default_logo
+                    self.login_user_photo.reload()
+
+        self.username.bind(text=on_login_mobile_change)
+
+        def _set_login_photo(fp):
+            if fp and os.path.exists(fp):
+                mb = self.username.text.strip() or "quick_user"
+                dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
+                comp_p = compress_image_under_30kb(fp, dest_p, max_kb=28)
+                self.login_direct_photo_path = comp_p
+                self.login_user_photo.source = comp_p
+                self.login_user_photo.reload()
+                if len(mb) == 10 and os.path.exists(self.USERS_FILE):
+                    try:
+                        df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                        rows_u = []
+                        for _, r in df_u.iterrows():
+                            rd = dict(r)
+                            if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb:
+                                rd['Photo'] = comp_p
+                            rows_u.append(rd)
+                        pd.DataFrame(rows_u, columns=df_u.columns).to_excel(self.USERS_FILE, index=False)
+                    except Exception:
+                        pass
+
+        def _login_cam_click(x):
+            mb = self.username.text.strip() or "quick_user"
+            dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
+            if kivy_platform == 'win':
+                select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo)
+            else:
+                capture_mobile_camera_safe(dest_p, _set_login_photo, self._msg_popup)
+
+        def _login_gal_click(x):
+            select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo)
+
+        btn_mini_cam.bind(on_press=_login_cam_click)
+        btn_mini_gal.bind(on_press=_login_gal_click)
+
+        btns = BoxLayout(spacing=dp(12) if is_mob else 15, size_hint_y=None, height=dp(46) if is_mob else 44)
+        b1 = Button(text='Sign In', background_color=(0.05, 0.55, 0.25, 1), font_size=sp(15) if is_mob else 15, bold=True)
         b1.bind(on_press=self.validate)
-        b2 = Button(text='Exit', background_color=(0.75, 0.15, 0.15, 1), font_size=sp(16) if is_mob else 16, bold=True)
+        b2 = Button(text='Exit', background_color=(0.75, 0.15, 0.15, 1), font_size=sp(15) if is_mob else 15, bold=True)
         b2.bind(on_press=App.get_running_app().stop)
-        btns.add_widget(b1); btns.add_widget(b2); card.add_widget(btns)
-        
+        btns.add_widget(b1); btns.add_widget(b2)
+        card.add_widget(btns)
+
+        auth_links = BoxLayout(spacing=dp(10) if is_mob else 12, size_hint_y=None, height=dp(42) if is_mob else 40)
+        btn_signup = Button(text='New User? Sign Up', background_color=(0.08, 0.35, 0.68, 1), font_size=sp(13.5) if is_mob else 13.5, bold=True)
+        btn_signup.bind(on_press=self.open_signup_popup)
+        btn_forgot = Button(text='Forgot Password?', background_color=(0.82, 0.45, 0.05, 1), font_size=sp(13.5) if is_mob else 13.5, bold=True)
+        btn_forgot.bind(on_press=self.open_forgot_password_popup)
+        auth_links.add_widget(btn_signup); auth_links.add_widget(btn_forgot)
+        card.add_widget(auth_links)
+
         footer_credit_lbl = Label(
-            text="This App is being designed and developed by- Mr. Pappu Singh (A.T.)\nPrimary School Panauta, Wazirganj (Budaun) Mobile No.- 9458500800",
-            font_size=sp(12) if is_mob else 12,
-            color=(0.05, 0.2, 0.45, 1), halign='center', valign='middle', size_hint_y=None, height=dp(55) if is_mob else 50
+            text="Designed & Developed by: Mr. Pappu Singh (A.T.)\nPrimary School Panauta, Wazirganj (Budaun) | Mob: 9458500800",
+            font_size=sp(11.5) if is_mob else 12,
+            color=(0.05, 0.2, 0.45, 1), halign='center', valign='middle', size_hint_y=None, height=dp(44) if is_mob else 45
         )
         footer_credit_lbl.bind(size=footer_credit_lbl.setter('text_size'))
         card.add_widget(footer_credit_lbl)
-        
+
         main.add_widget(card)
         if not is_mob: main.add_widget(BoxLayout())
         self.add_widget(main)
 
+    def _msg_popup(self, title, msg):
+        is_mob = (kivy_platform != 'win')
+        pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 18, spacing=dp(12))
+        lbl = Label(text=str(msg), halign='center', valign='middle', color=(1, 1, 1, 1), font_size=sp(14) if is_mob else 14)
+        lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(10), None)))
+        pl.add_widget(lbl)
+        cb = Button(text='OK', size_hint_y=None, height=dp(42) if is_mob else 38, background_color=(0.05, 0.55, 0.25, 1), bold=True)
+        pl.add_widget(cb)
+        pop = Popup(title=str(title), content=pl, size_hint=(0.90, 0.36) if is_mob else (0.45, 0.32), background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        cb.bind(on_press=pop.dismiss)
+        pop.open()
+
+    def _lookup_school_by_udise(self, udise_code):
+        code = str(udise_code).strip()
+        known_schools = {'09191204201': 'PRIMARY SCHOOL PANAUTA, WAZIRGANJ (BUDAUN)'}
+        if code in known_schools:
+            return known_schools[code]
+        if os.path.exists(self.UDISE_CACHE_FILE):
+            try:
+                df_u = pd.read_excel(self.UDISE_CACHE_FILE, dtype=str)
+                for _, r in df_u.iterrows():
+                    if str(r.get('UDISE', '')).strip() == code:
+                        s_nm = str(r.get('School Name', '')).strip()
+                        if s_nm and s_nm.lower() != 'nan':
+                            return s_nm
+            except Exception:
+                pass
+        try:
+            import urllib.request, json
+            url = f"https://udiseplus.gov.in{code}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode('utf-8', errors='ignore'))
+                if isinstance(data, dict):
+                    s_list = data.get('data') or data.get('schoolList') or []
+                    if s_list and isinstance(s_list, list):
+                        sch_name = s_list.get('schoolName') or s_list.get('schName') or ''
+                        dist_name = s_list.get('districtName') or ''
+                        if sch_name:
+                            return (f"{sch_name} ({dist_name})".strip() if dist_name else sch_name).upper()
+        except Exception:
+            pass
+        return ""
+    def open_signup_popup(self, instance):
+        is_mob = (kivy_platform != 'win')
+        outer = BoxLayout(orientation='vertical', padding=dp(12) if is_mob else 15, spacing=dp(8))
+        sc = ScrollView(do_scroll_x=False, do_scroll_y=True)
+        form = GridLayout(cols=1, spacing=dp(8), size_hint_y=None, padding=(dp(4), dp(4)))
+        form.bind(minimum_height=form.setter('height'))
+
+        h_inp = dp(42) if is_mob else 36
+        fs_lbl = sp(13) if is_mob else 13
+        self.signup_photo_path = ""
+
+        photo_strip = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(74) if is_mob else 68, spacing=dp(10), padding=(dp(4), dp(2)))
+        signup_img = Image(source=get_exe_safe_path('logo.png'), size_hint=(None, None), size=(dp(60), dp(68)) if is_mob else (56, 64), allow_stretch=True, keep_ratio=False)
+        photo_strip.add_widget(signup_img)
+
+        icon_btns = BoxLayout(orientation='vertical', spacing=dp(4))
+        icon_btns.add_widget(Label(text='Profile Photo (<30KB)', color=(1, 1, 0.7, 1), bold=True, font_size=sp(12) if is_mob else 12, size_hint_y=None, height=dp(20), halign='left'))
+        row_mini = BoxLayout(orientation='horizontal', spacing=dp(8), size_hint_y=None, height=dp(36))
+        btn_s_cam = Button(text='CAMERA', size_hint_x=None, width=dp(85), background_color=(0.05, 0.45, 0.7, 1), bold=True, font_size=sp(11.5) if is_mob else 11)
+        btn_s_gal = Button(text='GALLERY', size_hint_x=None, width=dp(85), background_color=(0.25, 0.25, 0.25, 1), bold=True, font_size=sp(11.5) if is_mob else 11)
+        row_mini.add_widget(btn_s_cam); row_mini.add_widget(btn_s_gal)
+        icon_btns.add_widget(row_mini)
+        photo_strip.add_widget(icon_btns)
+        form.add_widget(photo_strip)
+
+        def _on_signup_photo(fp):
+            if fp and os.path.exists(fp):
+                import random
+                dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"signup_{random.randint(1000,9999)}.jpg"))
+                comp_p = compress_image_under_30kb(fp, dest_p, max_kb=28)
+                self.signup_photo_path = comp_p
+                signup_img.source = comp_p
+                signup_img.reload()
+
+        def _click_s_cam(x):
+            import random
+            dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"signup_{random.randint(1000,9999)}.jpg"))
+            if kivy_platform == 'win':
+                select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo)
+            else:
+                capture_mobile_camera_safe(dest_p, _on_signup_photo, self._msg_popup)
+
+        btn_s_cam.bind(on_press=_click_s_cam)
+        btn_s_gal.bind(on_press=lambda x: select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo))
+
+        def add_field(label_txt, hint_txt, is_pass=False, max_c=None, digits_only=False):
+            form.add_widget(Label(text=label_txt, color=(1, 1, 1, 1), bold=True, font_size=fs_lbl, size_hint_y=None, height=dp(22), halign='left'))
+            ti = CustomText(hint_text=hint_txt, password=is_pass, max_chars=max_c, only_digits=digits_only, multiline=False, size_hint_y=None, height=h_inp)
+            form.add_widget(ti)
+            return ti
+
+        in_name = add_field('Full Name *', 'Enter Your Full Name')
+        in_mob = add_field('Mobile Number (10 Digits) *', 'Enter 10-digit Mobile No.', max_c=10, digits_only=True)
+        in_email = add_field('Email ID *', 'example@gmail.com')
+
+        form.add_widget(Label(text='School UDISE Code (11 Digits) *', color=(1, 1, 1, 1), bold=True, font_size=fs_lbl, size_hint_y=None, height=dp(22), halign='left'))
+        udise_row = BoxLayout(orientation='horizontal', spacing=dp(6), size_hint_y=None, height=h_inp)
+        in_udise = CustomText(hint_text='e.g. 09191204201', max_chars=11, only_digits=True, multiline=False, size_hint_x=0.68)
+        btn_find_sch = Button(text='SEARCH', size_hint_x=0.32, background_color=(0.05, 0.5, 0.75, 1), bold=True, font_size=sp(12.5) if is_mob else 12)
+        udise_row.add_widget(in_udise); udise_row.add_widget(btn_find_sch)
+        form.add_widget(udise_row)
+
+        in_school = add_field('School Name (Auto-Filled from UDISE) *', 'School Name will appear here')
+        in_pass = add_field('Create Password *', 'Enter Password', is_pass=True)
+        in_cpass = add_field('Confirm Password *', 'Re-enter Password', is_pass=True)
+
+        def trigger_udise_lookup(*args):
+            u_code = in_udise.text.strip()
+            if len(u_code) < 11:
+                self._msg_popup('UDISE Alert', 'Please enter complete 11-digit School UDISE Code!'); return
+            found_sch = self._lookup_school_by_udise(u_code)
+            if found_sch:
+                in_school.text = found_sch
+                self._msg_popup('School Found', f'School Verified:\n{found_sch}')
+            else:
+                self._msg_popup('Manual Entry', 'School name not found online. Please type School Name manually.')
+
+        in_udise.bind(text=lambda inst, val: setattr(in_school, 'text', self._lookup_school_by_udise(val.strip()) or in_school.text) if len(val.strip()) == 11 else None)
+        btn_find_sch.bind(on_press=trigger_udise_lookup)
+
+        sc.add_widget(form); outer.add_widget(sc)
+
+        b_bar = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44) if is_mob else 40)
+        btn_reg = Button(text='REGISTER NOW', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(14) if is_mob else 14)
+        btn_cls = Button(text='CANCEL', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(14) if is_mob else 14)
+        b_bar.add_widget(btn_reg); b_bar.add_widget(btn_cls)
+        outer.add_widget(b_bar)
+
+        pop_reg = Popup(title='Create New User Account (Sign Up)', content=outer, size_hint=(0.95, 0.90) if is_mob else (0.52, 0.88), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        btn_cls.bind(on_press=pop_reg.dismiss)
+
+        def save_new_user(ins):
+            nm, mb, em, ud, sc_nm, pw, cpw = in_name.text.strip(), in_mob.text.strip(), in_email.text.strip(), in_udise.text.strip(), in_school.text.strip(), in_pass.text.strip(), in_cpass.text.strip()
+            if not nm: self._msg_popup('Validation Error', 'Please enter Full Name!'); return
+            if len(mb) != 10 or not mb.isdigit(): self._msg_popup('Validation Error', 'Please enter valid 10-digit Mobile Number!'); return
+            if '@' not in em or '.' not in em: self._msg_popup('Validation Error', 'Please enter a valid Email ID!'); return
+            if len(ud) != 11 or not ud.isdigit(): self._msg_popup('Validation Error', 'UDISE Code must be 11 digits!'); return
+            if not sc_nm: self._msg_popup('Validation Error', 'School Name cannot be blank!'); return
+            if len(pw) < 4: self._msg_popup('Validation Error', 'Password must be at least 4 characters!'); return
+            if pw != cpw: self._msg_popup('Validation Error', 'Password and Confirm Password do not match!'); return
+
+            try:
+                final_user_photo = ""
+                if self.signup_photo_path and os.path.exists(self.signup_photo_path):
+                    final_user_photo = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
+                    if os.path.abspath(self.signup_photo_path) != final_user_photo:
+                        shutil.copy(self.signup_photo_path, final_user_photo)
+
+                df_new = pd.DataFrame([{'Name': nm.upper(), 'Mobile': mb, 'Email': em.lower(), 'UDISE': ud, 'School Name': sc_nm.upper(), 'Password': pw, 'Photo': final_user_photo}])
+                if not os.path.exists(self.USERS_FILE):
+                    df_new.to_excel(self.USERS_FILE, index=False)
+                else:
+                    df_old = pd.read_excel(self.USERS_FILE, dtype=str)
+                    kept = [dict(r) for _, r in df_old.iterrows() if str(r.get('Mobile', '')).strip().replace('.0', '') != mb]
+                    pd.concat([pd.DataFrame(kept, columns=df_old.columns), df_new], ignore_index=True).to_excel(self.USERS_FILE, index=False)
+
+                df_u_new = pd.DataFrame([{'UDISE': ud, 'School Name': sc_nm.upper()}])
+                if not os.path.exists(self.UDISE_CACHE_FILE):
+                    df_u_new.to_excel(self.UDISE_CACHE_FILE, index=False)
+                else:
+                    df_u_old = pd.read_excel(self.UDISE_CACHE_FILE, dtype=str)
+                    kept_u = [dict(r) for _, r in df_u_old.iterrows() if str(r.get('UDISE', '')).strip() != ud]
+                    pd.concat([pd.DataFrame(kept_u, columns=df_u_old.columns), df_u_new], ignore_index=True).to_excel(self.UDISE_CACHE_FILE, index=False)
+
+                self.username.text = mb; self.password.text = ''
+                if final_user_photo and os.path.exists(final_user_photo):
+                    self.login_user_photo.source = final_user_photo; self.login_user_photo.reload()
+                self.lbl_welcome_user.text = f"WELCOME, {nm.upper()}"
+                pop_reg.dismiss()
+                self._msg_popup('Registration Successful', f'Welcome {nm}!\nYour account is created.\nLogin using Mobile: {mb}')
+            except Exception as ex:
+                self._msg_popup('Save Error', f'Could not save account: {str(ex)}')
+
+        btn_reg.bind(on_press=save_new_user)
+        pop_reg.open()
+    def open_forgot_password_popup(self, instance):
+        is_mob = (kivy_platform != 'win')
+        pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 18, spacing=dp(10))
+        h_inp = dp(42) if is_mob else 36
+
+        pl.add_widget(Label(text='Enter Registered Mobile Number:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        mob_row = BoxLayout(spacing=dp(6), size_hint_y=None, height=h_inp)
+        in_reg_mob = CustomText(hint_text='10-digit Mobile No.', max_chars=10, only_digits=True, multiline=False, size_hint_x=0.62)
+        btn_send_otp = Button(text='SEND OTP', size_hint_x=0.38, background_color=(0.05, 0.45, 0.75, 1), bold=True, font_size=sp(12.5) if is_mob else 12)
+        mob_row.add_widget(in_reg_mob); mob_row.add_widget(btn_send_otp)
+        pl.add_widget(mob_row)
+
+        pl.add_widget(Label(text='Enter 6-Digit OTP:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        in_otp = CustomText(hint_text='Enter OTP', max_chars=6, only_digits=True, multiline=False, size_hint_y=None, height=h_inp)
+        pl.add_widget(in_otp)
+
+        pl.add_widget(Label(text='New Password:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        in_new_pw = CustomText(hint_text='Enter New Password', password=True, multiline=False, size_hint_y=None, height=h_inp)
+        pl.add_widget(in_new_pw)
+
+        pl.add_widget(Label(text='Confirm New Password:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        in_cnew_pw = CustomText(hint_text='Confirm New Password', password=True, multiline=False, size_hint_y=None, height=h_inp)
+        pl.add_widget(in_cnew_pw)
+
+        btn_row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44) if is_mob else 40)
+        btn_reset = Button(text='RESET PASSWORD', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(13) if is_mob else 13)
+        btn_cancel = Button(text='CANCEL', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(13) if is_mob else 13)
+        btn_row.add_widget(btn_reset); btn_row.add_widget(btn_cancel)
+        pl.add_widget(btn_row)
+
+        pop_fp = Popup(title='Forgot Password - OTP Recovery', content=pl, size_hint=(0.94, 0.72) if is_mob else (0.48, 0.65), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        btn_cancel.bind(on_press=pop_fp.dismiss)
+
+        self._generated_otp = ""
+        self._otp_target_mobile = ""
+
+        def send_otp_action(ins):
+            mb = in_reg_mob.text.strip()
+            if len(mb) != 10:
+                self._msg_popup('Alert', 'Please enter 10-digit registered Mobile Number!'); return
+
+            user_exists = False
+            if os.path.exists(self.USERS_FILE):
+                try:
+                    df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                    for _, r in df_u.iterrows():
+                        if str(r.get('Mobile', '')).strip().replace('.0', '') == mb:
+                            user_exists = True; break
+                except Exception:
+                    pass
+
+            if not user_exists:
+                self._msg_popup('Not Registered', f'Mobile Number {mb} is not registered!\nPlease Sign Up first.'); return
+
+            import random
+            otp_code = str(random.randint(100000, 999999))
+            self._generated_otp = otp_code
+            self._otp_target_mobile = mb
+
+            sms_sent = False
+            if kivy_platform == 'android':
+                try:
+                    from android.permissions import request_permissions, Permission
+                    request_permissions([Permission.SEND_SMS])
+                    from jnius import autoclass
+                    SmsManager = autoclass('android.telephony.SmsManager')
+                    SmsManager.getDefault().sendTextMessage(mb, None, f"Primary School Panauta ERP OTP: {otp_code}", None, None)
+                    sms_sent = True
+                except Exception:
+                    sms_sent = False
+
+            if sms_sent:
+                self._msg_popup('OTP Sent', f'6-Digit OTP has been sent via SMS to {mb}.')
+            else:
+                self._msg_popup('OTP Generated', f'OTP for {mb} is: {otp_code}\n(Enter this OTP to reset password)')
+
+        def reset_password_action(ins):
+            mb, entered_otp, npw, cnpw = in_reg_mob.text.strip(), in_otp.text.strip(), in_new_pw.text.strip(), in_cnew_pw.text.strip()
+            if not self._generated_otp or mb != self._otp_target_mobile:
+                self._msg_popup('OTP Error', 'Please click SEND OTP first!'); return
+            if entered_otp != self._generated_otp:
+                self._msg_popup('Invalid OTP', 'Entered OTP is incorrect! Please check and try again.'); return
+            if len(npw) < 4:
+                self._msg_popup('Validation Error', 'New Password must be at least 4 characters!'); return
+            if npw != cnpw:
+                self._msg_popup('Validation Error', 'New Password and Confirm Password do not match!'); return
+
+            try:
+                df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                updated_rows = []
+                for _, r in df_u.iterrows():
+                    rd = dict(r)
+                    if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb:
+                        rd['Password'] = npw
+                    updated_rows.append(rd)
+                pd.DataFrame(updated_rows, columns=df_u.columns).to_excel(self.USERS_FILE, index=False)
+
+                self._generated_otp = ""; self.username.text = mb; self.password.text = ""
+                pop_fp.dismiss()
+                self._msg_popup('Password Updated', 'Your password has been reset successfully!\nPlease login with your new password.')
+            except Exception as ex:
+                self._msg_popup('Error', f'Password update failed: {str(ex)}')
+
+        btn_send_otp.bind(on_press=send_otp_action)
+        btn_reset.bind(on_press=reset_password_action)
+        pop_fp.open()
+
     def validate(self, instance):
-        if self.username.text == "admin" and self.password.text == "1234": self.manager.current = 'dashboard'
+        u_in = self.username.text.strip()
+        p_in = self.password.text.strip()
+        if not u_in or not p_in:
+            self._msg_popup('Login Alert', 'Please enter Mobile Number and Password!'); return
+        if u_in == "admin" and p_in == "1234":
+            self.manager.current = 'dashboard'; return
+
+        if os.path.exists(self.USERS_FILE):
+            try:
+                df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                for _, r in df_u.iterrows():
+                    if str(r.get('Mobile', '')).strip().replace('.0', '') == u_in and str(r.get('Password', '')).strip() == p_in:
+                        u_pic = str(r.get('Photo', '')).strip()
+                        if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
+                            self.login_user_photo.source = u_pic; self.login_user_photo.reload()
+                        App.get_running_app().logged_in_user = dict(r)
+                        self.manager.current = 'dashboard'
+                        return
+            except Exception:
+                pass
+
+        self._msg_popup('Login Failed', 'Invalid Mobile Number or Password!\nNew users please click "New User? Sign Up".')
 
 class DashboardScreen(Screen):
     def __init__(self, **kwargs):
@@ -1491,18 +1998,19 @@ class DashboardScreen(Screen):
         scroll.add_widget(grid)
 
         if is_mob:
-            photo_panel = BoxLayout(orientation='horizontal', size_hint=(1, None), height=dp(95), padding=(dp(6), dp(4)), spacing=dp(8))
-            self.student_photo = Image(source=get_exe_safe_path("logo.png") if os.path.exists(get_exe_safe_path("logo.png")) else '', size_hint=(None, None), size=(dp(75), dp(85)))
+            photo_panel = BoxLayout(orientation='horizontal', size_hint=(1, None), height=dp(145), padding=(dp(8), dp(6)), spacing=dp(12))
+            self.student_photo = Image(source=get_exe_safe_path("logo.png") if os.path.exists(get_exe_safe_path("logo.png")) else '', size_hint=(None, None), size=(dp(110), dp(132)), allow_stretch=True, keep_ratio=False)
             photo_panel.add_widget(self.student_photo)
-            right_cam_box = BoxLayout(orientation='vertical', spacing=dp(4))
+            right_cam_box = BoxLayout(orientation='vertical', spacing=dp(8), padding=(0, dp(4)))
             self.photo_path_input = CustomText(text='', hint_text='Photo filename', multiline=False, size_hint_y=None, height=dp(38))
             right_cam_box.add_widget(self.photo_path_input); self.reg_master_tabs.append(self.photo_path_input)
-            b_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(6))
-            btn_upload = CustomButton(text='🖼️ GALLERY', background_color=(0.2, 0.2, 0.2, 1), bold=True)
+            b_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(38), spacing=dp(8))
+            btn_upload = CustomButton(text='GALLERY', size_hint_x=None, width=dp(95), background_color=(0.2, 0.2, 0.2, 1), bold=True)
             btn_upload.bind(on_press=self.upload_photo_action)
-            btn_cam = CustomButton(text='📸 CAMERA', background_color=(0, 0.4, 0.6, 1), bold=True)
+            btn_cam = CustomButton(text='CAMERA', size_hint_x=None, width=dp(95), background_color=(0, 0.4, 0.6, 1), bold=True)
             btn_cam.bind(on_press=self.capture_live_camera_action)
             b_box.add_widget(btn_upload); b_box.add_widget(btn_cam); right_cam_box.add_widget(b_box)
+            right_cam_box.add_widget(BoxLayout())
             photo_panel.add_widget(right_cam_box)
             form_body.add_widget(photo_panel); form_body.add_widget(scroll)
         else:
@@ -4292,26 +4800,27 @@ class DashboardScreen(Screen):
         scroll.add_widget(grid)
 
         if is_mob:
-            photo_panel = BoxLayout(orientation='horizontal', size_hint=(1, None), height=dp(95), padding=(dp(6), dp(4)), spacing=dp(8))
+            photo_panel = BoxLayout(orientation='horizontal', size_hint=(1, None), height=dp(145), padding=(dp(8), dp(6)), spacing=dp(12))
             with photo_panel.canvas.before:
                 Color(0.98, 0.92, 0.74, 1)
                 self.p_rect = Rectangle(size=photo_panel.size, pos=photo_panel.pos)
             photo_panel.bind(size=lambda ins, val: setattr(self.p_rect, 'size', ins.size), pos=lambda ins, val: setattr(self.p_rect, 'pos', ins.pos))
             
-            self.staff_photo = Image(source='', size_hint=(None, None), size=(dp(75), dp(85)))
+            self.staff_photo = Image(source='', size_hint=(None, None), size=(dp(110), dp(132)), allow_stretch=True, keep_ratio=False)
             photo_panel.add_widget(self.staff_photo)
             
-            right_stf_box = BoxLayout(orientation='vertical', spacing=dp(4))
+            right_stf_box = BoxLayout(orientation='vertical', spacing=dp(8), padding=(0, dp(4)))
             self.staff_photo_path = CustomText(text='', hint_text='Photo Path', multiline=False, size_hint_y=None, height=dp(38))
             right_stf_box.add_widget(self.staff_photo_path)
             self.staff_master_tabs.append(self.staff_photo_path)
             
-            b_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(6))
-            btn_browse = CustomButton(text='🖼️ GALLERY', background_color=(0.2, 0.2, 0.2, 1), bold=True)
+            b_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(38), spacing=dp(8))
+            btn_browse = CustomButton(text='GALLERY', size_hint_x=None, width=dp(95), background_color=(0.2, 0.2, 0.2, 1), bold=True)
             btn_browse.bind(on_press=self.browse_staff_photo_action)
-            btn_cam = CustomButton(text='📸 CAMERA', background_color=(0, 0.4, 0.6, 1), bold=True)
+            btn_cam = CustomButton(text='CAMERA', size_hint_x=None, width=dp(95), background_color=(0, 0.4, 0.6, 1), bold=True)
             btn_cam.bind(on_press=self.capture_staff_camera_action)
             b_box.add_widget(btn_browse); b_box.add_widget(btn_cam); right_stf_box.add_widget(b_box)
+            right_stf_box.add_widget(BoxLayout())
             photo_panel.add_widget(right_stf_box)
             
             form_body.add_widget(photo_panel)
@@ -5138,19 +5647,23 @@ class DashboardScreen(Screen):
                         )
             except Exception: pass
 
-        def trigger_live_camera_capture(s_no_key, btn_target):
+        def trigger_live_camera_capture(s_no_key, btn_target, img_preview_widget):
             os.makedirs('SMC_Photos', exist_ok=True)
             dest_path = os.path.abspath(os.path.join('SMC_Photos', f"SMC_{current_session.replace('-','_')}_{s_no_key}.jpg"))
+
+            def _apply_smc_photo(final_p):
+                if final_p and os.path.exists(final_p):
+                    self.smc_photo_paths_map[s_no_key] = final_p
+                    img_preview_widget.source = final_p
+                    img_preview_widget.reload()
+                    btn_target.text = "CHANGE"
+                    btn_target.background_color = (0.02, 0.45, 0.2, 1)
 
             def on_smc_photo_picked(p_path):
                 if p_path and os.path.exists(p_path):
                     try:
-                        if os.path.abspath(p_path) != dest_path:
-                            import shutil
-                            shutil.copy(p_path, dest_path)
-                        self.smc_photo_paths_map[s_no_key] = dest_path
-                        btn_target.text = "✅ ATTACHED"
-                        btn_target.background_color = (0.02, 0.45, 0.2, 1)
+                        comp_p = compress_image_under_30kb(p_path, dest_path, max_kb=28)
+                        _apply_smc_photo(comp_p)
                     except Exception:
                         pass
 
@@ -5169,24 +5682,41 @@ class DashboardScreen(Screen):
                         if k % 256 == 27: break
                         elif k % 256 == 32:
                             cv2.imwrite(dest_path, frame)
-                            self.smc_photo_paths_map[s_no_key] = dest_path
-                            btn_target.text = "✅ LIVE CAPTURED"
-                            btn_target.background_color = (0.02, 0.45, 0.2, 1)
+                            _apply_smc_photo(dest_path)
                             break
                     cam.release(); cv2.destroyAllWindows()
                 except Exception:
                     select_file_cross_platform("Select SMC Member Photo", [("Image Files", "*.png *.jpg *.jpeg")], on_smc_photo_picked)
             else:
-                select_file_cross_platform("Select SMC Member Photo", [("Image Files", "*.png *.jpg *.jpeg")], on_smc_photo_picked)
+                pl_opt = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
+                pl_opt.add_widget(Label(text=f"Member No. {s_no_key} Photo Option:", bold=True, font_size=sp(14), color=(1,1,1,1)))
+                b_row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44))
+                b_cam = Button(text="CAMERA", background_color=(0, 0.45, 0.65, 1), bold=True, font_size=sp(13.5))
+                b_gal = Button(text="GALLERY", background_color=(0.1, 0.55, 0.25, 1), bold=True, font_size=sp(13.5))
+                b_row.add_widget(b_cam); b_row.add_widget(b_gal)
+                pl_opt.add_widget(b_row)
+                pop_opt = Popup(title="SMC Photo Source", content=pl_opt, size_hint=(0.88, 0.32), background='', background_color=(0.14, 0.14, 0.14, 0.98))
 
-        lbl_smc_hdr = Label(text="📋 SMC ELECTED & EX-OFFICIO MEMBERS", color=(0.05, 0.25, 0.45, 1), bold=True, font_size=sp(14) if is_mob else 15, size_hint_y=None, height=dp(32) if is_mob else 36, halign='left', valign='middle')
+                def _choose_cam(x):
+                    pop_opt.dismiss()
+                    capture_mobile_camera_safe(dest_path, _apply_smc_photo, self.popup)
+
+                def _choose_gal(x):
+                    pop_opt.dismiss()
+                    select_file_cross_platform("Select SMC Member Photo", [("Image Files", "*.png *.jpg *.jpeg")], on_smc_photo_picked)
+
+                b_cam.bind(on_press=_choose_cam)
+                b_gal.bind(on_press=_choose_gal)
+                pop_opt.open()
+
+        lbl_smc_hdr = Label(text="SMC ELECTED & EX-OFFICIO MEMBERS", color=(0.05, 0.25, 0.45, 1), bold=True, font_size=sp(14) if is_mob else 15, size_hint_y=None, height=dp(32) if is_mob else 36, halign='left', valign='middle')
         lbl_smc_hdr.bind(size=lbl_smc_hdr.setter('text_size'))
         self.smc_main_layout.add_widget(lbl_smc_hdr)
         
         form_scroll = ScrollView(size_hint=(1, None), height=dp(460) if is_mob else 420, do_scroll_x=True, do_scroll_y=True)
         vertical_form_box = BoxLayout(orientation='vertical', spacing=dp(10) if is_mob else 14, size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(10, 10, 10, 15))
         if is_mob:
-            vertical_form_box.width = dp(760)
+            vertical_form_box.width = dp(860)
         vertical_form_box.bind(minimum_height=vertical_form_box.setter('height'))
         
         smc_master_tabs_list = [self.smc_session_spinner]
@@ -5197,44 +5727,61 @@ class DashboardScreen(Screen):
             is_govt_officer = (d >= 12)
             role_fixed_title = ex_officio_titles[d] if is_govt_officer else ""
             
-            member_card = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(46) if is_mob else 42, spacing=dp(8) if is_mob else 10, padding=(5, 2, 5, 2))
+            member_card = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(52) if is_mob else 46, spacing=dp(8) if is_mob else 10, padding=(5, 3, 5, 3))
             with member_card.canvas.before:
                 Color(0.95, 0.96, 0.98, 1)
                 member_card.rect = Rectangle(size=member_card.size, pos=member_card.pos)
             member_card.bind(size=lambda ins, val: setattr(ins.rect, 'size', ins.size), pos=lambda ins, val: setattr(ins.rect, 'pos', ins.pos))
 
             lbl_cap = f"No. {d}" if not is_govt_officer else f"Govt {d-11}"
-            member_card.add_widget(Label(text=lbl_cap, size_hint_x=0.08, color=(0.05, 0.25, 0.45, 1), bold=True, font_size=sp(12) if is_mob else 12))
+            member_card.add_widget(Label(text=lbl_cap, size_hint_x=0.07, color=(0.05, 0.25, 0.45, 1), bold=True, font_size=sp(12) if is_mob else 12))
             
             old_tuple = existing_data_dict.get(d, ('', '', 'Male', '', ''))
             val_name, val_desig, val_gender, val_mob, val_p_path = old_tuple
             
-            in_name = CustomText(text=str(val_name), multiline=False, size_hint_x=0.28, font_size=13, hint_text="Enter Member Name")
+            in_name = CustomText(text=str(val_name), multiline=False, size_hint_x=0.25, font_size=13, hint_text="Enter Member Name")
             member_card.add_widget(in_name); smc_master_tabs_list.append(in_name)
             
             if not is_govt_officer:
                 default_role = val_desig if val_desig else ('Chairman' if d == 1 else ('Vice-Chairman' if d == 2 else 'Parent Member'))
-                in_desig = CustomSpinner(text=str(default_role), values=('Chairman', 'Vice-Chairman', 'Parent Member', 'Teacher Member', 'Elected Member'), size_hint_x=0.20)
+                in_desig = CustomSpinner(text=str(default_role), values=('Chairman', 'Vice-Chairman', 'Parent Member', 'Teacher Member', 'Elected Member'), size_hint_x=0.19)
                 member_card.add_widget(in_desig); smc_master_tabs_list.append(in_desig)
             else:
-                in_desig = Label(text=str(role_fixed_title), size_hint_x=0.20, color=(0.4, 0.2, 0, 1), bold=True, font_size=sp(12) if is_mob else 12.5)
+                in_desig = Label(text=str(role_fixed_title), size_hint_x=0.19, color=(0.4, 0.2, 0, 1), bold=True, font_size=sp(12) if is_mob else 12.5)
                 member_card.add_widget(in_desig)
                 
             current_gender = val_gender if val_gender else 'Male'
-            in_gender = CustomSpinner(text=str(current_gender), values=('Male', 'Female'), size_hint_x=0.12)
+            in_gender = CustomSpinner(text=str(current_gender), values=('Male', 'Female'), size_hint_x=0.11)
             member_card.add_widget(in_gender); smc_master_tabs_list.append(in_gender)
             
             raw_val_str = str(val_mob).strip()
-            raw_mob_str = raw_val_str.split('.') if '.' in raw_val_str else raw_val_str
+            raw_mob_str = raw_val_str.split('.')[0] if '.' in raw_val_str else raw_val_str
             if raw_mob_str == 'nan': raw_mob_str = ''
 
-            in_mob = CustomText(text=raw_mob_str, max_chars=10, only_digits=True, multiline=False, size_hint_x=0.18, font_size=13, hint_text="10 Digits")
+            in_mob = CustomText(text=raw_mob_str, max_chars=10, only_digits=True, multiline=False, size_hint_x=0.16, font_size=13, hint_text="10 Digits")
             member_card.add_widget(in_mob); smc_master_tabs_list.append(in_mob)
             
-            p_exist = str(val_p_path)
-            self.smc_photo_paths_map[d] = p_exist
-            btn_pic = Button(text="✅ PHOTO" if p_exist else "📸 PHOTO", font_size=sp(11) if is_mob else 11, bold=True, size_hint_x=0.14, background_color=(0.1, 0.45, 0.65, 1) if p_exist else (0.4, 0.4, 0.4, 1))
-            btn_pic.bind(on_press=lambda instance, s_idx=d: trigger_live_camera_capture(s_idx, instance))
+            p_exist = str(val_p_path).strip()
+            has_valid_pic = bool(p_exist and p_exist.lower() != 'nan' and os.path.exists(p_exist))
+            self.smc_photo_paths_map[d] = p_exist if has_valid_pic else ""
+
+            img_box = Image(
+                source=p_exist if has_valid_pic else get_exe_safe_path('logo.png'),
+                size_hint=(None, None),
+                size=(dp(40), dp(46)) if is_mob else (36, 40),
+                allow_stretch=True,
+                keep_ratio=False
+            )
+            member_card.add_widget(img_box)
+
+            btn_pic = Button(
+                text="CHANGE" if has_valid_pic else "PHOTO",
+                font_size=sp(11) if is_mob else 11,
+                bold=True,
+                size_hint_x=0.12,
+                background_color=(0.1, 0.45, 0.65, 1) if has_valid_pic else (0.3, 0.3, 0.3, 1)
+            )
+            btn_pic.bind(on_press=lambda instance, s_idx=d, im_w=img_box: trigger_live_camera_capture(s_idx, instance, im_w))
             member_card.add_widget(btn_pic)
             
             self.smc_inputs_map[d] = (in_name, in_desig, in_gender, in_mob)
@@ -5245,8 +5792,8 @@ class DashboardScreen(Screen):
         self.smc_main_layout.add_widget(Widget(size_hint_y=None, height=dp(8) if is_mob else 10))
         
         bottom_btn_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48) if is_mob else 45, spacing=dp(10) if is_mob else 20, padding=(dp(6), 0) if is_mob else (40, 0, 40, 0))
-        btn_print_report = Button(text='🖨️ PRINT PDF' if is_mob else '🖨️ GENERATE & PRINT COMPREHENSIVE PDF REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12.5) if is_mob else 12.5)
-        btn_lock_save = Button(text='💾 SAVE SMC DATA' if is_mob else '💾 LOCK & SAVE ALL MEMBERS DATA TO DATABASE', background_color=(0.02, 0.45, 0.2, 1), bold=True, font_size=sp(12.5) if is_mob else 12.5)
+        btn_print_report = Button(text='PRINT PDF' if is_mob else '🖨️ GENERATE & PRINT COMPREHENSIVE PDF REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12.5) if is_mob else 12.5)
+        btn_lock_save = Button(text='SAVE SMC DATA' if is_mob else '💾 LOCK & SAVE ALL MEMBERS DATA TO DATABASE', background_color=(0.02, 0.45, 0.2, 1), bold=True, font_size=sp(12.5) if is_mob else 12.5)
         
         btn_print_report.bind(on_press=lambda x: self.generate_smc_report_pdf())
         btn_lock_save.bind(on_press=self.action_save_smc_members_data)
@@ -5300,7 +5847,7 @@ class DashboardScreen(Screen):
             elif key in (9, 13, 271):
                 if current_w and ('Button' in str(type(current_w))):
                     current_w.state = 'normal'
-                    if "PHOTO" in getattr(current_w, 'text', '').upper() or "CAPTURE" in getattr(current_w, 'text', '').upper():
+                    if "PHOTO" in getattr(current_w, 'text', '').upper() or "CHANGE" in getattr(current_w, 'text', '').upper():
                         if key in (13, 271): 
                             current_w.trigger_action(); return True
                     else:
@@ -5317,7 +5864,6 @@ class DashboardScreen(Screen):
         from kivy.clock import Clock
         Clock.schedule_once(lambda dt: update_smc_local_widget_colors(), 0.05)
 
-    # 💾 ✨ [डेटा राइटिंग इंजन]: Windows + Android दोनों पर सुरक्षित SMC डेटा सेव
     def action_save_smc_members_data(self, instance):
         SMC_FILE = 'SMC_Members_Database.xlsx'
         import os
@@ -5359,7 +5905,6 @@ class DashboardScreen(Screen):
         except Exception as e:
             self.popup('Storage Failed', f"Storage Blocked: {str(e)}")
 
-    # 🖨️ 🏛️ [मास्टर पीडीएफ प्रिंटर - Windows + Android क्रॉस-प्लेटफ़ॉर्म]
     def generate_smc_report_pdf(self):
         import os
         from reportlab.lib.pagesizes import A4
@@ -5404,7 +5949,6 @@ class DashboardScreen(Screen):
             pdf_story.append(Paragraph(f"<b>SCHOOL MANAGEMENT COMMITTEE (SMC) MEMBERS DISCLOSURE REGISTER<br/>ACADEMIC SESSION: {current_session}</b>", h_sub))
             pdf_story.append(Spacer(1, 20))
             
-            # ✨ [सुधार 1 फिक्स]: ६ कॉलम्स का पूर्ण संरेखण (Gender शामिल)
             reg_headers = [Paragraph("<b>S.No.</b>", th_style), Paragraph("<b>NAME OF MEMBER</b>", th_style), Paragraph("<b>DESIGNATION ROLE</b>", th_style), Paragraph("<b>GENDER</b>", th_style), Paragraph("<b>MOBILE NO.</b>", th_style), Paragraph("<b>PHOTO</b>", th_style)]
             reg_table_rows = [reg_headers]
             
@@ -5453,7 +5997,7 @@ class DashboardScreen(Screen):
             
             for i in range(1, len(reg_table_rows)):
                 try:
-                    if "EX-OFFICIO" in str(reg_table_rows[i].text):
+                    if "EX-OFFICIO" in str(reg_table_rows[i][1].text):
                         t_style_rules.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor("#E3F2FD"))); continue
                 except Exception: pass
                 if i % 2 == 0: t_style_rules.append(('BACKGROUND', (0, i), (-1, i), LIGHT_BLUE))
@@ -5479,7 +6023,6 @@ class DashboardScreen(Screen):
             self.popup('Report Hub', f"SMC Report Compiled Successfully under New Layout!\nSaved: {out_pdf_name}")
             open_file_cross_platform(out_pdf_name)
         except Exception as ex: self.popup('Print Error', f"PDF Compilation Failed: {str(ex)}")
-
     # =========================================================================
     # 🏛️ MASTER MODULE: COOK-CUM-HELPER DETAILS WITH LIVE WEBCAM & PURE WHITE UI
     # =========================================================================
@@ -5556,8 +6099,8 @@ class DashboardScreen(Screen):
                 left_form.add_widget(txt); cook_master_tabs_list.append(txt)
                 self.cook_fields[label_text] = txt
 
-        # 📸 [भाग 2]: फोटो पैनल (मोबाइल पर क्षैतिज पैनल ताकि कम जगह ले और बड़ा दिखे)
-        right_photo_panel = BoxLayout(orientation='horizontal' if is_mob else 'vertical', size_hint=(1, None) if is_mob else (0.40, 1), height=dp(110) if is_mob else 300, padding=dp(6) if is_mob else 10, spacing=dp(8) if is_mob else 10)
+        # 📸 [भाग 2]: फोटो पैनल (मोबाइल पर बड़ा फोटो बॉक्स और कॉम्पैक्ट बटन्स)
+        right_photo_panel = BoxLayout(orientation='horizontal' if is_mob else 'vertical', size_hint=(1, None) if is_mob else (0.40, 1), height=dp(145) if is_mob else 300, padding=dp(8) if is_mob else 10, spacing=dp(12) if is_mob else 10)
         with right_photo_panel.canvas.before:
             Color(0.95, 0.96, 0.98, 1)
             right_photo_panel.rect = Rectangle(size=right_photo_panel.size, pos=right_photo_panel.pos)
@@ -5566,12 +6109,12 @@ class DashboardScreen(Screen):
         if not is_mob:
             right_photo_panel.add_widget(Label(text='📸 MDM COOK PHOTO CONTROLLER', font_size=13, bold=True, color=(0.05, 0.25, 0.45, 1), size_hint_y=None, height=25))
         
-        self.cook_photo_widget = Image(source='', size_hint=(None, None), size=(dp(85), dp(95)) if is_mob else (110, 120), pos_hint={'center_x': 0.5, 'center_y': 0.5})
+        self.cook_photo_widget = Image(source='', size_hint=(None, None), size=(dp(110), dp(132)) if is_mob else (110, 120), allow_stretch=True, keep_ratio=False, pos_hint={'center_x': 0.5, 'center_y': 0.5})
         right_photo_panel.add_widget(self.cook_photo_widget)
         
         self.cook_photo_path_str = ""
         
-        btn_capture_live = Button(text="📸 CAMERA" if is_mob else "📸 LIVE Snap Camera", font_size=sp(12) if is_mob else 11, bold=True, size_hint_y=None, height=dp(42) if is_mob else 36, background_color=(0.1, 0.45, 0.65, 1))
+        btn_capture_live = Button(text="CAMERA" if is_mob else "📸 LIVE Snap Camera", font_size=sp(12) if is_mob else 11, bold=True, size_hint=(None, None) if is_mob else (1, None), width=dp(105), height=dp(38) if is_mob else 36, background_color=(0.1, 0.45, 0.65, 1))
         def local_snap_action(instance):
             os.makedirs('Cook_Photos', exist_ok=True)
             import random
@@ -5607,13 +6150,13 @@ class DashboardScreen(Screen):
                     self.cook_photo_path_str = fp
                     self.cook_photo_widget.source = fp
                     self.cook_photo_widget.reload()
-                    btn_capture_live.text = "✅ SNAP CAPTURED"
+                    btn_capture_live.text = "CAPTURED"
                     btn_capture_live.background_color = (0.02, 0.45, 0.2, 1)
 
                 capture_mobile_camera_safe(dest_path, on_cook_cam_ok, self.popup)
         btn_capture_live.bind(on_press=local_snap_action)
 
-        btn_browse_gallery = Button(text="🖼️ GALLERY" if is_mob else "🖼️ BROWSE FROM GALLERY", font_size=sp(12) if is_mob else 11, bold=True, size_hint_y=None, height=dp(42) if is_mob else 36, background_color=(0.2, 0.2, 0.2, 1))
+        btn_browse_gallery = Button(text="GALLERY" if is_mob else "🖼️ BROWSE FROM GALLERY", font_size=sp(12) if is_mob else 11, bold=True, size_hint=(None, None) if is_mob else (1, None), width=dp(105), height=dp(38) if is_mob else 36, background_color=(0.2, 0.2, 0.2, 1))
         def local_browse_action(instance):
             def on_cook_photo_picked(p_path):
                 if p_path and os.path.exists(p_path):
@@ -5628,7 +6171,7 @@ class DashboardScreen(Screen):
                         self.cook_photo_path_str = dest_path
                         self.cook_photo_widget.source = dest_path
                         self.cook_photo_widget.reload()
-                        btn_browse_gallery.text = "✅ ATTACHED"
+                        btn_browse_gallery.text = "ATTACHED" if is_mob else "✅ ATTACHED"
                         btn_browse_gallery.background_color = (0.02, 0.45, 0.2, 1)
                     except Exception:
                         pass
@@ -5641,9 +6184,10 @@ class DashboardScreen(Screen):
         btn_browse_gallery.bind(on_press=local_browse_action)
         
         if is_mob:
-            cam_btns_col = BoxLayout(orientation='vertical', spacing=dp(6))
+            cam_btns_col = BoxLayout(orientation='vertical', spacing=dp(10), padding=(0, dp(12)))
             cam_btns_col.add_widget(btn_capture_live)
             cam_btns_col.add_widget(btn_browse_gallery)
+            cam_btns_col.add_widget(BoxLayout())
             right_photo_panel.add_widget(cam_btns_col)
             master_form_box.add_widget(right_photo_panel)
             master_form_box.add_widget(left_form)
@@ -7731,8 +8275,8 @@ class DashboardScreen(Screen):
             else:
                 try:
                     scr_date_parts = self.f_rec_date.text.strip().split('-')
-                    target_m_code = str(scr_date_parts).strip()
-                    target_y_code = str(scr_date_parts).strip()
+                    target_m_code = str(scr_date_parts[1]).strip()
+                    target_y_code = str(scr_date_parts[2]).strip()
                     display_month_heading = rev_months_map.get(target_m_code, m_name.upper())
                 except Exception:
                     months_numeric_indices = {'January':'01', 'February':'02', 'March':'03', 'April':'04', 'May':'05', 'June':'06', 'July':'07', 'August':'08', 'September':'09', 'October':'10', 'November':'11', 'December':'12'}
@@ -7745,8 +8289,8 @@ class DashboardScreen(Screen):
                     if '-' in raw_date_str:
                         date_parts = raw_date_str.split('-')
                         if len(date_parts) == 3:
-                            c_month = str(date_parts).strip()
-                            c_year = str(date_parts).strip()
+                            c_month = str(date_parts[1]).strip()
+                            c_year = str(date_parts[2]).strip()
                             if c_month == target_m_code and c_year == target_y_code:
                                 valid_rows.append(dict(r_item))
                                 
@@ -7863,30 +8407,86 @@ class DashboardScreen(Screen):
         except Exception as ex:
             self.popup('Print Error', f"Ledger PDF Compilation Failed: {str(ex)}")
 
+class SplashLoadingScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        is_mob = (kivy_platform != 'win')
+        root = BoxLayout(orientation='vertical', padding=dp(24) if is_mob else 40, spacing=dp(16) if is_mob else 20)
+        with root.canvas.before:
+            Color(0.01, 0.28, 0.12, 1)
+            self.bg_rect = Rectangle(size=Window.size, pos=root.pos)
+        root.bind(size=lambda ins, val: setattr(self.bg_rect, 'size', ins.size), pos=lambda ins, val: setattr(self.bg_rect, 'pos', ins.pos))
+
+        root.add_widget(BoxLayout(size_hint_y=0.18))
+
+        logo_p = get_exe_safe_path('logo.png')
+        if os.path.exists(logo_p):
+            root.add_widget(Image(source=logo_p, size_hint=(None, None), size=(dp(135), dp(135)) if is_mob else (150, 150), pos_hint={'center_x': 0.5}))
+
+        lbl_title = Label(text='PRIMARY SCHOOL PANAUTA', font_size=sp(22) if is_mob else 28, bold=True, color=(1, 0.9, 0, 1), size_hint_y=None, height=dp(36) if is_mob else 40, halign='center')
+        lbl_sub = Label(text='UDISE: 09191204201  |  Wazirganj, Budaun', font_size=sp(14) if is_mob else 16, bold=True, color=(0.9, 1, 0.9, 1), size_hint_y=None, height=dp(26) if is_mob else 30, halign='center')
+        root.add_widget(lbl_title)
+        root.add_widget(lbl_sub)
+
+        boxes_row = BoxLayout(orientation='horizontal', spacing=dp(10) if is_mob else 12, size_hint=(None, None), size=(dp(190), dp(28)) if is_mob else (220, 32), pos_hint={'center_x': 0.5})
+        self.load_boxes = []
+        for _ in range(5):
+            b = Button(text='', disabled=True, background_disabled_normal='', background_color=(0.15, 0.55, 0.3, 1))
+            boxes_row.add_widget(b)
+            self.load_boxes.append(b)
+        root.add_widget(boxes_row)
+
+        from kivy.uix.progressbar import ProgressBar
+        self.pbar = ProgressBar(max=100, value=10, size_hint=(0.82, None) if is_mob else (0.5, None), height=dp(14) if is_mob else 16, pos_hint={'center_x': 0.5})
+        root.add_widget(self.pbar)
+
+        self.status_lbl = Label(text='Loading School ERP System... 10%', font_size=sp(13.5) if is_mob else 14, bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(28) if is_mob else 30, halign='center')
+        root.add_widget(self.status_lbl)
+        root.add_widget(BoxLayout(size_hint_y=0.22))
+
+        self.add_widget(root)
+        self.step = 0
+        Clock.schedule_interval(self._animate_loading, 0.18)
+
+    def _animate_loading(self, dt):
+        self.step += 1
+        active_idx = (self.step - 1) % len(self.load_boxes)
+        for i, box in enumerate(self.load_boxes):
+            box.background_color = (1, 0.85, 0, 1) if i == active_idx else (0.15, 0.55, 0.3, 1)
+
+        if self.step == 2:
+            self.pbar.value = 40
+            self.status_lbl.text = 'Preparing Student & Staff Modules... 40%'
+            if not self.manager.has_screen('login'):
+                self.manager.add_widget(LoginScreen(name='login'))
+        elif self.step == 4:
+            self.pbar.value = 75
+            self.status_lbl.text = 'Loading Attendance, MDM & Reports... 75%'
+            if not self.manager.has_screen('dashboard'):
+                self.manager.add_widget(DashboardScreen(name='dashboard'))
+        elif self.step >= 6:
+            self.pbar.value = 100
+            self.status_lbl.text = 'Ready! Opening Login Screen... 100%'
+            Clock.unschedule(self._animate_loading)
+            Clock.schedule_once(lambda d: setattr(self.manager, 'current', 'login'), 0.2)
+
 
 class SchoolERPApp(App):
     def build(self):
         self.icon = get_exe_safe_path('logo.png')
-        # 🔗 वैश्विक कीबोर्ड हुक इंजन को विंडो के साथ लाइव सक्रिय करना
-        from kivy.core.window import Window
         Window.bind(on_key_down=self.universal_keyboard_navigation_handler)
         
         sm = ScreenManager()
-        sm.add_widget(LoginScreen(name='login'))
-        sm.add_widget(DashboardScreen(name='dashboard'))
+        sm.add_widget(SplashLoadingScreen(name='splash'))
         return sm
 
-    # ⌨️ 🚀 [अल्टीमेट यूनिवर्सल कीबोर्ड इंजन]: CustomText, CustomSpinner और CustomButton का 100% परमानेंट फिक्स लॉक
     def universal_keyboard_navigation_handler(self, window, key, scancode, codepoint, modifiers):
         from kivy.uix.textinput import TextInput
         from kivy.uix.spinner import Spinner
         from kivy.uix.button import Button
         from kivy.uix.scrollview import ScrollView
         
-        # 🔍 वर्तमान एक्टिव फोकस विजेट ढूंढना
         current_focus = window.focus
-        
-        # [मास्टर मेमोरी हुक]: यदि किवी ने फोकस साफ़ कर दिया है, तो हमारी बकेट से पिछला एक्टिव विजेट उठाना
         if not current_focus or isinstance(current_focus, bool):
             if hasattr(self, 'current_keyboard_active_widget') and self.current_keyboard_active_widget:
                 current_focus = self.current_keyboard_active_widget
@@ -7897,8 +8497,6 @@ class SchoolERPApp(App):
             return False
             
         parent_layout = current_focus.parent
-        
-        # यदि पैरेंट सीधे स्क्रॉल ट्रैक है, तो उसके अंदर का सही ग्रिड लेआउट खोजना
         if isinstance(parent_layout, ScrollView) and hasattr(parent_layout, 'children'):
             if parent_layout.children:
                 parent_layout = parent_layout.children[0]
@@ -7909,89 +8507,67 @@ class SchoolERPApp(App):
         if not hasattr(parent_layout, 'children'):
             return False
             
-        # ✨ [महा सुधार फिक्स]: कतार के सभी इनपुट डिब्बे, कस्टम स्पिनर्स और कस्टम बटन्स को वैश्विक स्तर पर एक साथ छानना
         all_widgets = []
         for w in parent_layout.children:
-            # यह कतार किवी की मूल क्लास और आपकी तीनों कस्टम क्लासेस (CustomText, CustomSpinner, CustomButton) दोनों को एक साथ वैलिडेट करेगी!
             if isinstance(w, (TextInput, Spinner, Button)) or 'CustomText' in str(type(w)) or 'CustomSpinner' in str(type(w)) or 'CustomButton' in str(type(w)):
                 all_widgets.append(w)
                 
-        all_widgets.reverse() # शासकीय क्रम सीधा करना
-        
+        all_widgets.reverse()
         if current_focus not in all_widgets:
             return False
             
         idx = all_widgets.index(current_focus)
         num_widgets = len(all_widgets)
         
-        # 📑 [स्मार्ट विजेट शिफ्टर]: यह बटन, स्पिनर और टेक्स्ट बॉक्स तीनों को जबरन कीबोर्ड पर लाइव अलाइन करेगा
         def switch_focus_to_target(target_widget, current_widget):
-            # पुराने विजेट्स की शैलियाँ साफ़ करना
             if isinstance(current_widget, Button) or 'Button' in str(type(current_widget)):
                 current_widget.state = 'normal'
             if hasattr(current_widget, 'is_open') and current_widget.is_open:
                 current_widget.is_open = False
                 
-            # वर्तमान ग्लोबल एक्टिव विजेट मेमोरी लॉक करना
             self.current_keyboard_active_widget = target_widget
-            
-            # यदि अगला विजेट ड्रॉपडाउन स्पिनर है, तो उसे सीधे स्क्रीन पर लाइव ओपन (ड्रॉप) कर दो
             if isinstance(target_widget, Spinner) or 'Spinner' in str(type(target_widget)) or 'CustomSpinner' in str(type(target_widget)):
                 if hasattr(window, 'focus'): window.focus = None
                 target_widget.is_open = True
-            # यदि अगला विजेट कोई बटन है, तो उसे विज़ुअली हाइलाइट करके फोकस लॉक करो
             elif isinstance(target_widget, Button) or 'Button' in str(type(target_widget)) or 'CustomButton' in str(type(target_widget)):
                 if hasattr(window, 'focus'): window.focus = None
-                target_widget.state = 'down' # बटन को दबा हुआ (चयनित) दिखाना
-            # यदि टेक्स्ट बॉक्स है, तो कर्सर एक्टिव करो
+                target_widget.state = 'down'
             else:
                 self.current_keyboard_active_widget = None
                 target_widget.focus = True
 
-        # 📑 1. [TAB KEY]: अगले डिब्बे, ड्रॉपडाउन या बटन पर जाने के लिए
-        if key == 9 and not modifiers: # 9 = Tab Key Code
+        if key == 9 and not modifiers:
             next_idx = (idx + 1) % num_widgets
             switch_focus_to_target(all_widgets[next_idx], current_focus)
             return True
-            
-        # 📑 2. [SHIFT + TAB]: पिछले विजेट पर वापस आने के लिए
         elif key == 9 and 'shift' in modifiers:
             prev_idx = (idx - 1 + num_widgets) % num_widgets
             switch_focus_to_target(all_widgets[prev_idx], current_focus)
             return True
-            
-        # 📑 3. [ENTER KEY]: डेटा लॉक करना, ड्रॉपडाउन चुनना या चयनित बटन को ट्रिगर करना
-        elif key == 13: # 13 = Enter Key Code
+        elif key == 13:
             if isinstance(current_focus, Button) or 'Button' in str(type(current_focus)) or 'CustomButton' in str(type(current_focus)):
                 current_focus.state = 'normal'
-                current_focus.trigger_action() # बटन एक्शन ट्रिगर
+                current_focus.trigger_action()
                 return True
             elif (isinstance(current_focus, Spinner) or 'Spinner' in str(type(current_focus)) or 'CustomSpinner' in str(type(current_focus))) and getattr(current_focus, 'is_open', False):
-                current_focus.is_open = False # एंटर दबाने पर ड्रॉपडाउन बंद करना
+                current_focus.is_open = False
                 return True
-                
             next_idx = (idx + 1) % num_widgets
             switch_focus_to_target(all_widgets[next_idx], current_focus)
             return True
-            
-        # 📑 4. [DOWN ARROW / RIGHT ARROW]: ग्रिड में आगे या नीचे खिसकने के लिए
         elif key in (274, 275):
             if (isinstance(current_focus, Spinner) or 'Spinner' in str(type(current_focus)) or 'CustomSpinner' in str(type(current_focus))) and getattr(current_focus, 'is_open', False):
-                return False # स्पिनर के अंदर एरो चलने दें
+                return False
             if isinstance(current_focus, TextInput) and current_focus.cursor_index() != len(current_focus.text):
                 return False 
-                
             next_idx = (idx + 1) % num_widgets
             switch_focus_to_target(all_widgets[next_idx], current_focus)
             return True
-            
-        # 📑 5. [UP ARROW / LEFT ARROW]: ग्रिड में पीछे या ऊपर खिसकने के लिए
         elif key in (273, 276):
             if (isinstance(current_focus, Spinner) or 'Spinner' in str(type(current_focus)) or 'CustomSpinner' in str(type(current_focus))) and getattr(current_focus, 'is_open', False):
                 return False 
             if isinstance(current_focus, TextInput) and current_focus.cursor_index() != 0:
                 return False 
-                
             prev_idx = (idx - 1 + num_widgets) % num_widgets
             switch_focus_to_target(all_widgets[prev_idx], current_focus)
             return True
