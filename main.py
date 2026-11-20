@@ -3480,16 +3480,15 @@ class DashboardScreen(Screen):
             self.load_mdm_financial_ledger_ui()
             for child in self.mdm_sub_box.children:
                 if isinstance(child, BoxLayout) and len(child.children) == 3:
-                    self.btn_print_m_ledg = child.children
-                    self.btn_print_a_ledg = child.children
-                    self.btn_save_tx = child.children
+                    self.btn_print_m_ledg = child.children[2]
+                    self.btn_print_a_ledg = child.children[1]
+                    self.btn_save_tx = child.children[0]
             
         elif view_type == 'ration':
             self.load_mdm_ration_stock_ui()
             for child in self.mdm_sub_box.children:
                 if isinstance(child, BoxLayout) and len(child.children) == 1:
-                    self.btn_save_rat = child.children
-
+                    self.btn_save_rat = child.children[0]
         # ====================================================================
         mdm_all_controls_chain = []
         
@@ -3728,9 +3727,9 @@ class DashboardScreen(Screen):
         self.tot_fruit_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[6], size_hint_y=None, height=row_h_mdm)
         self.tot_suppl_lbl = Label(text="0", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[7], size_hint_y=None, height=row_h_mdm)
         self.tot_wheat_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[8], size_hint_y=None, height=row_h_mdm)
-        self.tot_rice_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        self.tot_cost_lbl = Label(text="0.00", color=(0.8,0.1,0.1,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm, size_hint_y=None, height=row_h_mdm)
-        
+        self.tot_rice_lbl = Label(text="0.00", color=(0,0,0,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[9], size_hint_y=None, height=row_h_mdm)
+        self.tot_cost_lbl = Label(text="0.00", color=(0.8,0.1,0.1,1), bold=True, size_hint_x=None if is_mob else 1, width=col_w_mdm[10], size_hint_y=None, height=row_h_mdm)
+
         grid.add_widget(self.tot_fruit_lbl)
         grid.add_widget(self.tot_suppl_lbl)
         grid.add_widget(self.tot_wheat_lbl)
@@ -3898,7 +3897,7 @@ class DashboardScreen(Screen):
         current_date_str = datetime.now().strftime("%d-%m-%Y")
 
         # 📝 [भाग ए]: वित्तीय ट्रांजैक्शन इनपुट फॉर्म पैनल (मोबाइल पर 2 कॉलम ताकि बॉक्स न पिचकें)
-        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(330) if is_mob else 155, spacing=dp(8) if is_mob else 14, padding=dp(6) if is_mob else 10)
+        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(365) if is_mob else 155, spacing=dp(8) if is_mob else 14, padding=dp(6) if is_mob else 10)
         
         lbl_fs = sp(12.5) if is_mob else 13
         inp_h = dp(42) if is_mob else 36
@@ -4004,7 +4003,7 @@ class DashboardScreen(Screen):
                     grid_table.add_widget(make_cell_lbl(str(row.get('Cheque No','')), c_bg, 7))
                     grid_table.add_widget(make_cell_lbl(f"{float(row.get('Final Balance',0) or 0):.2f}", c_bg, 8, is_bold=True, txt_col=(0, 0.35, 0.7, 1)))
                     
-                    btn_cell = BoxLayout(size_hint_x=None if is_mob else 1, width=col_w_ledg, size_hint_y=None, height=dp(38) if is_mob else 36, padding=3)
+                    btn_cell = BoxLayout(size_hint_x=None if is_mob else 1, width=col_w_ledg[9], size_hint_y=None, height=dp(38) if is_mob else 36, padding=3)
                     with btn_cell.canvas.before:
                         Color(*c_bg)
                         btn_cell.rect = Rectangle(size=btn_cell.size, pos=btn_cell.pos)
@@ -4075,7 +4074,7 @@ class DashboardScreen(Screen):
             except Exception: pass
             
         # 📦 [लेयर 1]: शुद्ध इनपुट फॉर्म ग्रिड (मोबाइल पर 2 कॉलम ताकि डिब्बे बड़े दिखें)
-        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(370) if is_mob else 165, spacing=dp(8) if is_mob else 12, padding=dp(6) if is_mob else 8)
+        form_grid = GridLayout(cols=2 if is_mob else 4, size_hint_y=None, height=dp(415) if is_mob else 165, spacing=dp(8) if is_mob else 12, padding=dp(6) if is_mob else 8)
         
         lbl_fs = sp(12.5) if is_mob else 13
         inp_h = dp(42) if is_mob else 36
