@@ -1148,9 +1148,20 @@ class LoginScreen(Screen):
 
     def validate(self, instance):
         u_in, p_in = self.username.text.strip(), self.password.text.strip()
-        if not u_in or not p_in: self._msg_popup('Login Alert', 'Please enter Mobile Number and Password!'); return
+        if not u_in or not p_in:
+            self._msg_popup('Login Alert', 'Please enter Mobile Number and Password!'); return
+
         if u_in == "admin" and p_in == "1234":
-            self.manager.current = 'dashboard'; return
+            admin_pic = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, "user_admin.jpg"))
+            if not os.path.exists(admin_pic) and self.login_direct_photo_path and os.path.exists(self.login_direct_photo_path):
+                admin_pic = self.login_direct_photo_path
+            App.get_running_app().logged_in_user = {
+                'Name': 'Admin',
+                'Photo': admin_pic if os.path.exists(admin_pic) else ''
+            }
+            self.manager.current = 'dashboard'
+            return
+
         if os.path.exists(self.USERS_FILE):
             try:
                 df_u = pd.read_excel(self.USERS_FILE, dtype=str)
@@ -1195,9 +1206,10 @@ class DashboardScreen(Screen):
         else:
             self.header.add_widget(BoxLayout(size_hint_x=0.08))
 
-        # दाईं ओर यूज़र की फोटो आइकन और नाम
+        # दाईं ओर यूज़र/एडमिन की फोटो आइकन और नाम
         user_badge = BoxLayout(orientation='vertical', size_hint_x=0.17 if is_mob else 0.11, spacing=2, padding=(2, 2))
-        self.dash_user_img = Image(source=resolved_school_logo if os.path.exists(resolved_school_logo) else '', size_hint=(None, None), size=(dp(36), dp(36)) if is_mob else (50, 50), pos_hint={'center_x': 0.5}, allow_stretch=True, keep_ratio=False)
+        admin_default_pic = os.path.abspath(os.path.join('User_Photos', 'user_admin.jpg'))
+        self.dash_user_img = Image(source=admin_default_pic if os.path.exists(admin_default_pic) else '', size_hint=(None, None), size=(dp(38), dp(38)) if is_mob else (50, 50), pos_hint={'center_x': 0.5}, allow_stretch=True, keep_ratio=False)
         self.dash_user_lbl = Label(text='Admin', font_size=sp(10) if is_mob else 12, bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(16) if is_mob else 20, halign='center')
         self.dash_user_lbl.bind(size=self.dash_user_lbl.setter('text_size'))
         user_badge.add_widget(self.dash_user_img)
@@ -1205,7 +1217,7 @@ class DashboardScreen(Screen):
         self.header.add_widget(user_badge)
             
         self.outer.add_widget(self.header)
-        menu = ['STUDENT REGISTRATION', 'STUDENT ATTENDANCE', 'MARKS ENTRY', 'RESULTS', 'HEIGHT & WEIGHT', 'D.B.T.', 'MDM', 'STAFF DETAIL', 'S.M.C. MEMBERS', 'COOK DETAILS', 'GRANT DETAILS', 'TRANSFER CERTIFICATE', 'PHOTO GALLERY', 'GOOGLE DRIVE SYNC', 'LOGOUT']
+        menu = ['HOME', 'STUDENT REGISTRATION', 'STUDENT ATTENDANCE', 'MARKS ENTRY', 'RESULTS', 'HEIGHT & WEIGHT', 'D.B.T.', 'MDM', 'STAFF DETAIL', 'S.M.C. MEMBERS', 'COOK DETAILS', 'GRANT DETAILS', 'TRANSFER CERTIFICATE', 'PHOTO GALLERY', 'GOOGLE DRIVE SYNC', 'LOGOUT']
 
         if is_mob:
             # मोबाइल Portrait मोड: ऊपर क्षैतिज स्क्रॉल मेनू बार + नीचे 100% फुल पेज
@@ -1213,7 +1225,7 @@ class DashboardScreen(Screen):
             top_menu_box = BoxLayout(orientation='horizontal', spacing=dp(6), padding=(dp(6), dp(4)), size_hint_x=None)
             top_menu_box.bind(minimum_width=top_menu_box.setter('width'))
             for name in menu:
-                btn_color = (0.7, 0.1, 0.1, 1) if name == 'EXIT' else (0.02, 0.45, 0.2, 1)
+                btn_color = (0.7, 0.1, 0.1, 1) if name in ['EXIT', 'LOGOUT'] else ((0.05, 0.38, 0.72, 1) if name == 'HOME' else (0.02, 0.45, 0.2, 1))
                 btn = Button(text=name, background_color=btn_color, font_size=sp(12), bold=True, size_hint=(None, 1), width=dp(165), background_normal='')
                 btn.bind(on_press=self.menu_nav)
                 top_menu_box.add_widget(btn)
@@ -1233,7 +1245,7 @@ class DashboardScreen(Screen):
             sidebar_buttons_grid = GridLayout(cols=1, spacing=8, padding=(10, 15, 10, 15), size_hint_y=None)
             sidebar_buttons_grid.bind(minimum_height=sidebar_buttons_grid.setter('height'))
             for name in menu:
-                btn_color = (0.7, 0.1, 0.1, 1) if name in ['EXIT', 'LOGOUT'] else (0.02, 0.45, 0.2, 1)
+                btn_color = (0.7, 0.1, 0.1, 1) if name in ['EXIT', 'LOGOUT'] else ((0.05, 0.38, 0.72, 1) if name == 'HOME' else (0.02, 0.45, 0.2, 1))
                 btn = Button(text=name, background_color=btn_color, font_size=12, bold=True, size_hint_y=None, height=44, background_normal='')
                 btn.bind(on_press=self.menu_nav)
                 sidebar_buttons_grid.add_widget(btn)
@@ -1483,31 +1495,52 @@ class DashboardScreen(Screen):
                 for row in reversed(all_notices):
                     n_date = str(row.get('Date', ''))
                     n_cap = str(row.get('Caption', ''))
-                    n_path = str(row.get('File_Path', ''))
+                    n_path = str(row.get('File_Path', '')).strip()
                     ticker_headlines.append(f"[{n_date}] {n_cap}")
                     
-                    notice_box = BoxLayout(orientation='vertical', spacing=2, padding=8, size_hint_y=None, height=dp(80) if is_mob else 75)
+                    low_p = n_path.lower()
+                    if low_p.endswith('.pdf'):
+                        badge_txt, badge_clr = "PDF", (0.80, 0.12, 0.12, 1)
+                    elif low_p.endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                        badge_txt, badge_clr = "IMG", (0.05, 0.55, 0.25, 1)
+                    else:
+                        badge_txt, badge_clr = "DOC", (0.08, 0.42, 0.78, 1)
+
+                    notice_box = BoxLayout(orientation='horizontal', spacing=dp(8), padding=dp(6), size_hint_y=None, height=dp(76) if is_mob else 72)
                     with notice_box.canvas.before:
                         Color(0.2, 0.25, 0.35, 1)
                         notice_box.rect = Rectangle(size=notice_box.size, pos=notice_box.pos)
-                    notice_box.bind(size=lambda ins, val: setattr(notice_box.rect, 'size', ins.size), pos=lambda ins, val: setattr(notice_box.rect, 'pos', ins.pos))
+                    notice_box.bind(size=lambda ins, val: setattr(ins.rect, 'size', ins.size), pos=lambda ins, val: setattr(ins.rect, 'pos', ins.pos))
                     
-                    notice_box.add_widget(Label(text=f"Date: {n_date}", font_size=sp(11.5) if is_mob else 11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=dp(18) if is_mob else 16, halign='left'))
+                    # बाईं तरफ़ PDF / IMG / DOC आइकन बैज
+                    btn_badge = Button(text=badge_txt, size_hint=(None, 1), width=dp(48) if is_mob else 46, background_normal='', background_color=badge_clr, bold=True, font_size=sp(12.5) if is_mob else 12)
                     
-                    btn_lnk = Button(text=n_cap, font_size=sp(13.5) if is_mob else 13.5, bold=True, color=(1,1,1,1), background_normal='', background_color=(0,0,0,0), halign='left', valign='middle')
+                    txt_col = BoxLayout(orientation='vertical', spacing=2)
+                    txt_col.add_widget(Label(text=f"Date: {n_date}", font_size=sp(11) if is_mob else 11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=dp(16) if is_mob else 16, halign='left'))
+                    
+                    btn_lnk = Button(text=n_cap, font_size=sp(13) if is_mob else 13, bold=True, color=(1,1,1,1), background_normal='', background_color=(0,0,0,0), halign='left', valign='middle')
                     btn_lnk.bind(size=btn_lnk.setter('text_size'))
 
                     def _open_notice_item(inst, pth=n_path, cap_t=n_cap):
-                        if not os.path.exists(pth):
-                            self.popup('Alert', 'Notice file missing!'); return
-                        if pth.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-                            open_image_zoom_popup(pth, cap_t)
+                        real_p = pth if os.path.exists(pth) else os.path.join('Bulletin_Uploads', os.path.basename(pth))
+                        if not os.path.exists(real_p):
+                            self.popup('Alert', f'Notice file not found:\n{os.path.basename(pth)}'); return
+                        if real_p.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                            box_z = BoxLayout(orientation='vertical', padding=10, spacing=10)
+                            box_z.add_widget(Image(source=real_p, allow_stretch=True, keep_ratio=True, size_hint=(1, 0.88)))
+                            bc = Button(text='CLOSE', size_hint=(1, 0.12), background_color=(0.75, 0.15, 0.15, 1), bold=True)
+                            box_z.add_widget(bc)
+                            pp = Popup(title=cap_t, content=box_z, size_hint=(0.94, 0.82) if is_mob else (0.8, 0.82))
+                            bc.bind(on_press=pp.dismiss); pp.open()
                         else:
-                            open_file_cross_platform(pth)
+                            open_file_cross_platform(real_p)
 
+                    btn_badge.bind(on_press=_open_notice_item)
                     btn_lnk.bind(on_press=_open_notice_item)
                     
-                    notice_box.add_widget(btn_lnk)
+                    txt_col.add_widget(btn_lnk)
+                    notice_box.add_widget(btn_badge)
+                    notice_box.add_widget(txt_col)
                     notices_grid.add_widget(notice_box)
             except Exception: 
                 pass
@@ -1547,7 +1580,9 @@ class DashboardScreen(Screen):
             self.content_area.add_widget(split_master_box)
 
     def menu_nav(self, instance):
-        if instance.text in ['EXIT', 'LOGOUT']:
+        if instance.text == 'HOME':
+            self.show_welcome()
+        elif instance.text in ['EXIT', 'LOGOUT']:
             self.logout_user_action()
         elif instance.text == 'STUDENT REGISTRATION': self.load_form()
         elif instance.text == 'STUDENT ATTENDANCE': self.load_attendance_view()
@@ -2822,30 +2857,27 @@ class DashboardScreen(Screen):
         lbl_hdr.bind(size=lbl_hdr.setter('text_size'))
         self.content_area.add_widget(lbl_hdr)
         
-        # 🎛️ टॉप कंट्रोल पैनल (मोबाइल पर 2 कॉलम ताकि कोई बटन या स्पिनर न कटे)
-        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(190) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
+        top_bar = GridLayout(cols=2 if is_mob else 6, size_hint_y=None, height=dp(155) if is_mob else 50, spacing=dp(8) if is_mob else 8, padding=(dp(5), dp(6)))
         top_bar.add_widget(Label(text='Select Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
-        self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
+        self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'All Classes'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_class_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_class_spinner)
         
-        top_bar.add_widget(Label(text='Select Year:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
-        self.dbt_year_spinner = CustomSpinner(text='2026', values=('2026', '2027', '2028', '2029', '2030'), size_hint_y=None, height=dp(42) if is_mob else 36)
-        self.dbt_year_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_year_spinner)
+        btn_dl_temp = Button(text='DOWNLOAD TEMPLATE', background_color=(0.1, 0.4, 0.6, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_dl_temp.bind(on_press=self.download_dbt_template_excel); top_bar.add_widget(btn_dl_temp)
         
-        btn_upload_dbt_excel = Button(text='📂 UPLOAD EXCEL', background_color=(0.1, 0.4, 0.8, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
-        btn_upload_dbt_excel.bind(on_press=self.upload_department_dbt_excel)
-        top_bar.add_widget(btn_upload_dbt_excel)
-        
-        btn_print_school_dbt = Button(text='🖨️ PRINT REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_up_dept = Button(text='UPLOAD DBT EXCEL', background_color=(0.55, 0.25, 0.7, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_up_dept.bind(on_press=self.upload_department_dbt_excel); top_bar.add_widget(btn_up_dept)
+
+        btn_print_school_dbt = Button(text='PRINT DBT PDF', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_print_school_dbt.bind(on_press=lambda x: self.generate_school_consolidated_dbt_pdf()); top_bar.add_widget(btn_print_school_dbt)
+
         btn_prerna_sync = Button(text='PRERNA OTP SYNC', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
         btn_prerna_sync.bind(on_press=self.open_prerna_portal_dbt_sync)
         top_bar.add_widget(btn_prerna_sync)
-
-        btn_print_school_dbt.bind(on_press=lambda x: self.generate_school_consolidated_dbt_pdf())
-        top_bar.add_widget(btn_print_school_dbt)
         
         self.content_area.add_widget(top_bar)
-        
+        from kivy.uix.widget import Widget
+        self.content_area.add_widget(Widget(size_hint_y=None, height=dp(12) if is_mob else 6))
         self.dbt_grid_box = BoxLayout(orientation='vertical', padding=5); self.content_area.add_widget(self.dbt_grid_box)
         
         al = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48) if is_mob else 45, spacing=10)
@@ -3402,6 +3434,7 @@ class DashboardScreen(Screen):
     def load_height_weight_view(self):
         self.content_area.clear_widgets(); self.current_view = 'height_weight'; self.hw_fields = {}
         is_mob = (kivy_platform != 'win')
+        from kivy.uix.widget import Widget
         with self.content_area.canvas.before:
             Color(0.95, 0.95, 0.92, 1); self.c_bg = Rectangle(size=self.content_area.size, pos=self.content_area.pos)
         self.content_area.bind(size=lambda ins, val: setattr(self.c_bg, 'size', ins.size), pos=lambda ins, val: setattr(self.c_bg, 'pos', ins.pos))
@@ -3410,7 +3443,7 @@ class DashboardScreen(Screen):
         lbl_hw.bind(size=lbl_hw.setter('text_size'))
         self.content_area.add_widget(lbl_hw)
         
-        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(185) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
+        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(210) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=(dp(5), dp(6)))
         top_bar.add_widget(Label(text='Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.hw_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.hw_class_spinner.bind(text=lambda sp, tx: self.refresh_hw_grid()); top_bar.add_widget(self.hw_class_spinner)
@@ -3428,7 +3461,11 @@ class DashboardScreen(Screen):
         top_bar.add_widget(btn_print_m_h); top_bar.add_widget(btn_print_a_h)
         self.content_area.add_widget(top_bar)
         
-        self.hw_grid_box = BoxLayout(orientation='vertical', padding=5); self.content_area.add_widget(self.hw_grid_box)
+        # बटन्स और नीचे की टेबल लिस्ट के बीच साफ़ गैप
+        self.content_area.add_widget(Widget(size_hint_y=None, height=dp(24) if is_mob else 10))
+        
+        self.hw_grid_box = BoxLayout(orientation='vertical', padding=(5, 8, 5, 5))
+        self.content_area.add_widget(self.hw_grid_box)
         
         al = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48) if is_mob else 45, spacing=10)
         self.btn_save_hw = CustomButton(text='SAVE HEALTH DATA', background_color=(0.05, 0.45, 0.55, 1), bold=True)
@@ -3436,7 +3473,7 @@ class DashboardScreen(Screen):
         self.btn_back_hw = CustomButton(text='BACK', background_color=(0.7, 0.1, 0.1, 1), bold=True)
         self.btn_back_hw.bind(on_press=lambda x: self.show_welcome())
         al.add_widget(self.btn_save_hw); al.add_widget(self.btn_back_hw); self.content_area.add_widget(al)
-        
+
         # 🖨️ ✨ [मास्टर हेल्थ ड्यूल पीडीएफ जनरेटर इंजन - क्रॉस-प्लेटफ़ॉर्म]
         def action_health_pdf_engine(is_annual_mode=False):
             cls = self.hw_class_spinner.text.strip()
@@ -6358,7 +6395,7 @@ class DashboardScreen(Screen):
         
         current_session = self.cook_session_spinner.text.strip()
         
-        master_form_box = BoxLayout(orientation='vertical' if is_mob else 'horizontal', spacing=dp(10) if is_mob else 15, padding=5, size_hint_y=None, height=dp(520) if is_mob else 310)
+        master_form_box = BoxLayout(orientation='vertical' if is_mob else 'horizontal', size_hint_y=None, height=dp(565) if is_mob else 310, spacing=dp(12) if is_mob else 15, padding=5)
 
         left_form = GridLayout(cols=2, spacing=(dp(8), dp(8)) if is_mob else (12, 10), size_hint=(1, None) if is_mob else (0.60, 1), height=dp(395) if is_mob else 300, padding=5)
         cook_master_tabs_list = [self.cook_session_spinner]
@@ -6576,14 +6613,12 @@ class DashboardScreen(Screen):
         else:
             self.cook_main_layout.add_widget(action_bar)
             
-        self.cook_main_layout.add_widget(Widget(size_hint_y=None, height=dp(10) if is_mob else 15))
-
-         # 📑 [भाग 4]: नीचे लाइव डेटाबेस ग्रिड टेबल व्यू (मोबाइल पर फुल-पेज व स्क्रॉल सहित)
-        lbl_cook_list = Label(text="📋 LIVE REGISTERED MDM COOK LIST (Tap Row to Edit)", color=(0.05, 0.25, 0.45, 1), bold=True, font_size=sp(13) if is_mob else 13.5, size_hint_y=None, height=dp(30) if is_mob else 25, halign='left', valign='middle')
-        lbl_cook_list.bind(size=lbl_cook_list.setter('text_size'))
-        self.cook_main_layout.add_widget(lbl_cook_list)
+        self.cook_main_layout.add_widget(Widget(size_hint_y=None, height=dp(14) if is_mob else 12))
+        lbl_list = Label(text='LIVE REGISTERED MDM COOK LIST (Tap Row to Edit)', font_size=sp(13.5) if is_mob else 13.5, bold=True, color=(0.05, 0.25, 0.45, 1), size_hint_y=None, height=dp(30) if is_mob else 25, halign='left')
+        lbl_list.bind(size=lbl_list.setter('text_size'))
+        self.cook_main_layout.add_widget(lbl_list)
         
-        db_scroll = ScrollView(size_hint=(1, None), height=dp(360) if is_mob else 240, do_scroll_x=True, do_scroll_y=True)
+        table_scroll = ScrollView(size_hint=(1, None) if is_mob else (1, 1), height=dp(260) if is_mob else 240, do_scroll_x=True, do_scroll_y=True)
         grid_table = GridLayout(cols=10, spacing=(1, 1), size_hint_x=None, size_hint_y=None, padding=2)
         grid_table.bind(minimum_height=grid_table.setter('height'))
         col_w = [dp(50), dp(155), dp(80), dp(95), dp(145), dp(125), dp(105), dp(125), dp(110), dp(65)] if is_mob else [45, 140, 75, 85, 130, 110, 95, 110, 100, 60]
