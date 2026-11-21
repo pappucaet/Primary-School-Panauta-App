@@ -8801,8 +8801,14 @@ def load_photo_gallery_view(self):
 
     def open_google_drive_sync_popup(self):
         is_mob = (kivy_platform != 'win')
-        CFG_FILE = 'Drive_Sync_Config.txt'
-        saved_url = open(CFG_FILE, 'r').read().strip() if os.path.exists(CFG_FILE) else ''
+        CFG_FILE = os.path.join(DATA_DIR, 'Drive_Sync_Config.txt')
+        saved_url = ''
+        if os.path.exists(CFG_FILE):
+            try:
+                with open(CFG_FILE, 'r', encoding='utf-8') as f_cfg:
+                    saved_url = f_cfg.read().strip()
+            except Exception:
+                saved_url = ''
 
         pl = BoxLayout(orientation='vertical', padding=dp(14) if is_mob else 18, spacing=dp(10))
         lbl = Label(text='Centralized School Data Sync (Google Drive Web App URL):\nAll teachers using the same Drive URL share live school data.', color=(1,1,1,1), font_size=sp(12.5) if is_mob else 13, size_hint_y=None, height=dp(55))
