@@ -46,23 +46,27 @@ except Exception:
     PUBLIC_EXPORT_DIR = DATA_DIR
 os.chdir(DATA_DIR)
 
-# 📸 फोटो को 30KB से कम साइज में कंप्रेस करने का इंजन (Windows + Android दोनों पर चलेगा)
 def compress_image_under_30kb(src_path, dest_path, max_kb=28):
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
+        abs_src = os.path.abspath(src_path)
+        abs_dest = os.path.abspath(dest_path)
+        os.makedirs(os.path.dirname(abs_dest), exist_ok=True)
+        tmp_out = abs_dest + ".tmp_cmp.jpg"
+
+        compressed_ok = False
         try:
             from PIL import Image as PILImage
-            img = PILImage.open(src_path)
+            img = PILImage.open(abs_src)
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
             img.thumbnail((320, 400))
             quality = 75
             while quality >= 15:
-                img.save(dest_path, format="JPEG", quality=quality, optimize=True)
-                if os.path.getsize(dest_path) <= max_kb * 1024:
-                    return dest_path
+                img.save(tmp_out, format="JPEG", quality=quality, optimize=True)
+                if os.path.getsize(tmp_out) <= max_kb * 1024:
+                    break
                 quality -= 10
-            return dest_path
+            compressed_ok = os.path.exists(tmp_out)
         except ImportError:
             if kivy_platform == 'android':
                 from jnius import autoclass
@@ -70,21 +74,29 @@ def compress_image_under_30kb(src_path, dest_path, max_kb=28):
                 Bitmap = autoclass('android.graphics.Bitmap')
                 FileOutputStream = autoclass('java.io.FileOutputStream')
                 CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
-                bmp = BitmapFactory.decodeFile(src_path)
+                bmp = BitmapFactory.decodeFile(abs_src)
                 if bmp:
                     scaled = Bitmap.createScaledBitmap(bmp, 240, 300, True)
                     q = 75
                     while q >= 15:
-                        fos = FileOutputStream(dest_path)
+                        fos = FileOutputStream(tmp_out)
                         scaled.compress(CompressFormat.JPEG, q, fos)
                         fos.close()
-                        if os.path.getsize(dest_path) <= max_kb * 1024:
-                            return dest_path
+                        if os.path.getsize(tmp_out) <= max_kb * 1024:
+                            break
                         q -= 15
-                    return dest_path
-        if os.path.abspath(src_path) != os.path.abspath(dest_path):
-            shutil.copy(src_path, dest_path)
-        return dest_path
+                    compressed_ok = os.path.exists(tmp_out)
+
+        if compressed_ok and os.path.exists(tmp_out):
+            if os.path.exists(abs_dest):
+                try: os.remove(abs_dest)
+                except Exception: pass
+            os.replace(tmp_out, abs_dest)
+            return abs_dest
+
+        if abs_src != abs_dest:
+            shutil.copyfile(abs_src, abs_dest)
+        return abs_dest
     except Exception:
         return src_path
 
@@ -202,7 +214,6 @@ def open_file_cross_platform(filepath, operation="open"):
 LOGO_FILE = get_exe_safe_path('logo.png')
 BASIC_FILE = get_exe_safe_path('basic.png')
 
-# 📂 Android 11-15 असली सिस्टम गैलरी और Excel फ़ाइल पिकर (100% वर्किंग)
 def select_file_cross_platform(title_text, filters_list, on_file_selected_callback):
     if kivy_platform == 'win':
         try:
@@ -222,8 +233,11 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
             PythonActivity = autoclass('org.kivy.android.PythonActivity')
             Intent = autoclass('android.content.Intent')
 
-            is_image_pick = any(ext in str(filters_list).lower() for ext in ['jpg', 'png', 'jpeg', 'image'])
-            if is_image_pick:
+            f_str = str(filters_list).lower()
+            has_docs = any(ext in f_str for ext in ['pdf', 'doc', 'xls', 'csv', 'document', 'notice'])
+            is_only_image = (not has_docs) and any(ext in f_str for ext in ['jpg', 'png', 'jpeg', 'image'])
+
+            if is_only_image:
                 pick_intent = Intent(Intent.ACTION_PICK)
                 pick_intent.setType("image/*")
             else:
@@ -238,13 +252,17 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
                         uri = intent.getData()
                         try:
                             resolver = PythonActivity.mActivity.getContentResolver()
+                            mime_type = str(resolver.getType(uri) or "").lower()
                             input_stream = resolver.openInputStream(uri)
-                            ext = ".jpg" if is_image_pick else ".xlsx"
+
+                            ext = ".jpg" if is_only_image else ".pdf"
                             uri_str = str(uri.toString()).lower()
-                            if ".png" in uri_str: ext = ".png"
-                            elif ".pdf" in uri_str: ext = ".pdf"
-                            elif ".csv" in uri_str: ext = ".csv"
-                            elif ".xls" in uri_str and ".xlsx" not in uri_str: ext = ".xls"
+                            if "png" in mime_type or ".png" in uri_str: ext = ".png"
+                            elif "jpeg" in mime_type or "jpg" in mime_type or ".jpg" in uri_str or ".jpeg" in uri_str: ext = ".jpg"
+                            elif "pdf" in mime_type or ".pdf" in uri_str: ext = ".pdf"
+                            elif "sheet" in mime_type or "excel" in mime_type or ".xlsx" in uri_str: ext = ".xlsx"
+                            elif ".xls" in uri_str: ext = ".xls"
+                            elif "csv" in mime_type or ".csv" in uri_str: ext = ".csv"
 
                             import random
                             raw_copy = os.path.join(DATA_DIR, f"picked_{random.randint(10000,99999)}{ext}")
@@ -252,12 +270,11 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
                                 buf = bytearray(8192)
                                 while True:
                                     n = input_stream.read(buf)
-                                    if n <= 0:
-                                        break
+                                    if n <= 0: break
                                     f_out.write(bytes(buf[:n]))
                             input_stream.close()
 
-                            if is_image_pick:
+                            if ext in ['.jpg', '.jpeg', '.png']:
                                 comp_copy = os.path.join(DATA_DIR, f"comp_{random.randint(10000,99999)}.jpg")
                                 final_file = compress_image_under_30kb(raw_copy, comp_copy, max_kb=28)
                             else:
@@ -724,31 +741,21 @@ class LoginScreen(Screen):
             self.cd = Rectangle(size=card.size, pos=card.pos)
         card.bind(size=lambda ins, val: setattr(self.cd, 'size', ins.size), pos=lambda ins, val: setattr(self.cd, 'pos', ins.pos))
 
-        # लॉगिन स्क्रीन पर यूज़र फ़ोटो + छोटा आइकन कैप्चर बॉक्स
         top_avatar_row = BoxLayout(orientation='horizontal', size_hint=(None, None), size=(dp(150), dp(96)) if is_mob else (165, 108), spacing=dp(8), pos_hint={'center_x': 0.5})
-        
         default_logo = get_exe_safe_path('logo.png')
-        self.login_user_photo = Image(
-            source=default_logo if os.path.exists(default_logo) else '',
-            size_hint=(None, None),
-            size=(dp(88), dp(94)) if is_mob else (98, 105),
-            allow_stretch=True,
-            keep_ratio=False
-        )
+        self.login_user_photo = Image(source=default_logo if os.path.exists(default_logo) else '', size_hint=(None, None), size=(dp(88), dp(94)) if is_mob else (98, 105), allow_stretch=True, keep_ratio=False)
         top_avatar_row.add_widget(self.login_user_photo)
 
         mini_cam_box = BoxLayout(orientation='vertical', size_hint=(None, None), size=(dp(52), dp(94)) if is_mob else (56, 105), spacing=dp(4), padding=(0, dp(8)))
         btn_mini_cam = Button(text='CAM', font_size=sp(10.5) if is_mob else 10, bold=True, background_color=(0.05, 0.45, 0.7, 1))
         btn_mini_gal = Button(text='GAL', font_size=sp(10.5) if is_mob else 10, bold=True, background_color=(0.2, 0.25, 0.3, 1))
-        mini_cam_box.add_widget(btn_mini_cam)
-        mini_cam_box.add_widget(btn_mini_gal)
+        mini_cam_box.add_widget(btn_mini_cam); mini_cam_box.add_widget(btn_mini_gal)
         top_avatar_row.add_widget(mini_cam_box)
         card.add_widget(top_avatar_row)
 
         self.lbl_welcome_user = Label(text='PRIMARY SCHOOL PANAUTA', font_size=sp(19) if is_mob else 22, bold=True, color=(0.02, 0.4, 0.15, 1), size_hint_y=None, height=dp(26) if is_mob else 28, halign='center')
         self.lbl_school_sub = Label(text='School ERP & Management Portal', font_size=sp(12.5) if is_mob else 13.5, bold=True, color=(0.25, 0.35, 0.3, 1), size_hint_y=None, height=dp(20) if is_mob else 22, halign='center')
-        card.add_widget(self.lbl_welcome_user)
-        card.add_widget(self.lbl_school_sub)
+        card.add_widget(self.lbl_welcome_user); card.add_widget(self.lbl_school_sub)
 
         card.add_widget(Label(text='Mobile Number (or Admin ID)', font_size=sp(14) if is_mob else 13.5, bold=True, color=(0, 0, 0, 1), size_hint_y=None, height=dp(22) if is_mob else 22, halign='left'))
         self.username = TextInput(multiline=False, size_hint_y=None, height=dp(44) if is_mob else 40, hint_text='Enter 10-digit Mobile No.', font_size=sp(15) if is_mob else 15, padding=[dp(10), dp(10)], background_color=(0.95, 0.97, 0.95, 1))
@@ -766,19 +773,15 @@ class LoginScreen(Screen):
                         if str(r.get('Mobile', '')).strip().replace('.0', '') == mb:
                             u_nm = str(r.get('Name', '')).strip()
                             u_pic = str(r.get('Photo', '')).strip()
-                            if u_nm and u_nm.lower() != 'nan':
-                                self.lbl_welcome_user.text = f"WELCOME, {u_nm}"
+                            if u_nm and u_nm.lower() != 'nan': self.lbl_welcome_user.text = f"WELCOME, {u_nm}"
                             if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
-                                self.login_user_photo.source = u_pic
-                                self.login_user_photo.reload()
+                                self.login_user_photo.source = u_pic; self.login_user_photo.reload()
                             return
-                except Exception:
-                    pass
+                except Exception: pass
             if not self.login_direct_photo_path:
                 self.lbl_welcome_user.text = 'PRIMARY SCHOOL PANAUTA'
                 if os.path.exists(default_logo):
-                    self.login_user_photo.source = default_logo
-                    self.login_user_photo.reload()
+                    self.login_user_photo.source = default_logo; self.login_user_photo.reload()
 
         self.username.bind(text=on_login_mobile_change)
 
@@ -788,56 +791,40 @@ class LoginScreen(Screen):
                 dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
                 comp_p = compress_image_under_30kb(fp, dest_p, max_kb=28)
                 self.login_direct_photo_path = comp_p
-                self.login_user_photo.source = comp_p
-                self.login_user_photo.reload()
+                self.login_user_photo.source = comp_p; self.login_user_photo.reload()
                 if len(mb) == 10 and os.path.exists(self.USERS_FILE):
                     try:
                         df_u = pd.read_excel(self.USERS_FILE, dtype=str)
                         rows_u = []
                         for _, r in df_u.iterrows():
                             rd = dict(r)
-                            if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb:
-                                rd['Photo'] = comp_p
+                            if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb: rd['Photo'] = comp_p
                             rows_u.append(rd)
                         pd.DataFrame(rows_u, columns=df_u.columns).to_excel(self.USERS_FILE, index=False)
-                    except Exception:
-                        pass
+                    except Exception: pass
 
-        def _login_cam_click(x):
-            mb = self.username.text.strip() or "quick_user"
-            dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
-            if kivy_platform == 'win':
-                select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo)
-            else:
-                capture_mobile_camera_safe(dest_p, _set_login_photo, self._msg_popup)
+        btn_mini_cam.bind(on_press=lambda x: select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo) if kivy_platform == 'win' else capture_mobile_camera_safe(os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{self.username.text.strip() or 'quick'}.jpg")), _set_login_photo, self._msg_popup))
+        btn_mini_gal.bind(on_press=lambda x: select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo))
 
-        def _login_gal_click(x):
-            select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _set_login_photo)
-
-        btn_mini_cam.bind(on_press=_login_cam_click)
-        btn_mini_gal.bind(on_press=_login_gal_click)
-
-        btns = BoxLayout(spacing=dp(12) if is_mob else 15, size_hint_y=None, height=dp(46) if is_mob else 44)
-        b1 = Button(text='Sign In', background_color=(0.05, 0.55, 0.25, 1), font_size=sp(15) if is_mob else 15, bold=True)
+        btns = BoxLayout(spacing=dp(10) if is_mob else 12, size_hint_y=None, height=dp(46) if is_mob else 44)
+        b1 = Button(text='Sign In (Password)', background_color=(0.05, 0.55, 0.25, 1), font_size=sp(14) if is_mob else 14, bold=True)
         b1.bind(on_press=self.validate)
-        b2 = Button(text='Exit', background_color=(0.75, 0.15, 0.15, 1), font_size=sp(15) if is_mob else 15, bold=True)
-        b2.bind(on_press=App.get_running_app().stop)
-        btns.add_widget(b1); btns.add_widget(b2)
+        b_otp = Button(text='Login via OTP', background_color=(0.04, 0.45, 0.52, 1), font_size=sp(14) if is_mob else 14, bold=True)
+        b_otp.bind(on_press=self.open_otp_login_popup)
+        btns.add_widget(b1); btns.add_widget(b_otp)
         card.add_widget(btns)
 
-        auth_links = BoxLayout(spacing=dp(10) if is_mob else 12, size_hint_y=None, height=dp(42) if is_mob else 40)
-        btn_signup = Button(text='New User? Sign Up', background_color=(0.08, 0.35, 0.68, 1), font_size=sp(13.5) if is_mob else 13.5, bold=True)
+        auth_links = BoxLayout(spacing=dp(8) if is_mob else 10, size_hint_y=None, height=dp(42) if is_mob else 40)
+        btn_signup = Button(text='Sign Up', background_color=(0.08, 0.35, 0.68, 1), font_size=sp(13) if is_mob else 13, bold=True)
         btn_signup.bind(on_press=self.open_signup_popup)
-        btn_forgot = Button(text='Forgot Password?', background_color=(0.82, 0.45, 0.05, 1), font_size=sp(13.5) if is_mob else 13.5, bold=True)
+        btn_forgot = Button(text='Forgot Password?', background_color=(0.82, 0.45, 0.05, 1), font_size=sp(13) if is_mob else 13, bold=True)
         btn_forgot.bind(on_press=self.open_forgot_password_popup)
-        auth_links.add_widget(btn_signup); auth_links.add_widget(btn_forgot)
+        b2 = Button(text='Exit', size_hint_x=0.55, background_color=(0.75, 0.15, 0.15, 1), font_size=sp(13) if is_mob else 13, bold=True)
+        b2.bind(on_press=App.get_running_app().stop)
+        auth_links.add_widget(btn_signup); auth_links.add_widget(btn_forgot); auth_links.add_widget(b2)
         card.add_widget(auth_links)
 
-        footer_credit_lbl = Label(
-            text="Designed & Developed by: Mr. Pappu Singh (A.T.)\nPrimary School Panauta, Wazirganj (Budaun) | Mob: 9458500800",
-            font_size=sp(11.5) if is_mob else 12,
-            color=(0.05, 0.2, 0.45, 1), halign='center', valign='middle', size_hint_y=None, height=dp(44) if is_mob else 45
-        )
+        footer_credit_lbl = Label(text="Designed & Developed by: Mr. Pappu Singh (A.T.)\nPrimary School Panauta, Wazirganj (Budaun) | Mob: 9458500800", font_size=sp(11.5) if is_mob else 12, color=(0.05, 0.2, 0.45, 1), halign='center', valign='middle', size_hint_y=None, height=dp(44) if is_mob else 45)
         footer_credit_lbl.bind(size=footer_credit_lbl.setter('text_size'))
         card.add_widget(footer_credit_lbl)
 
@@ -854,39 +841,43 @@ class LoginScreen(Screen):
         cb = Button(text='OK', size_hint_y=None, height=dp(42) if is_mob else 38, background_color=(0.05, 0.55, 0.25, 1), bold=True)
         pl.add_widget(cb)
         pop = Popup(title=str(title), content=pl, size_hint=(0.90, 0.36) if is_mob else (0.45, 0.32), background='', background_color=(0.14, 0.14, 0.14, 0.98))
-        cb.bind(on_press=pop.dismiss)
-        pop.open()
+        cb.bind(on_press=pop.dismiss); pop.open()
+
+    def _dispatch_sms_or_popup_otp(self, mobile_no, otp_code, purpose_label="Verification"):
+        if kivy_platform == 'android':
+            try:
+                from android.permissions import request_permissions, Permission
+                request_permissions([Permission.SEND_SMS])
+                from jnius import autoclass
+                SmsManager = autoclass('android.telephony.SmsManager')
+                SmsManager.getDefault().sendTextMessage(mobile_no, None, f"Primary School Panauta {purpose_label} OTP: {otp_code}", None, None)
+            except Exception:
+                pass
+        self._msg_popup(f'{purpose_label} OTP', f'6-Digit OTP for {mobile_no} is:\n\n{otp_code}')
 
     def _lookup_school_by_udise(self, udise_code):
         code = str(udise_code).strip()
-        known_schools = {'09191204201': 'PRIMARY SCHOOL PANAUTA, WAZIRGANJ (BUDAUN)'}
-        if code in known_schools:
-            return known_schools[code]
+        if code == '09191204201': return 'PRIMARY SCHOOL PANAUTA, WAZIRGANJ (BUDAUN)'
         if os.path.exists(self.UDISE_CACHE_FILE):
             try:
                 df_u = pd.read_excel(self.UDISE_CACHE_FILE, dtype=str)
                 for _, r in df_u.iterrows():
                     if str(r.get('UDISE', '')).strip() == code:
                         s_nm = str(r.get('School Name', '')).strip()
-                        if s_nm and s_nm.lower() != 'nan':
-                            return s_nm
-            except Exception:
-                pass
+                        if s_nm and s_nm.lower() != 'nan': return s_nm
+            except Exception: pass
         try:
             import urllib.request, json
             url = f"https://udiseplus.gov.in{code}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = json.loads(resp.read().decode('utf-8', errors='ignore'))
-                if isinstance(data, dict):
-                    s_list = data.get('data') or data.get('schoolList') or []
-                    if s_list and isinstance(s_list, list):
-                        sch_name = s_list.get('schoolName') or s_list.get('schName') or ''
-                        dist_name = s_list.get('districtName') or ''
-                        if sch_name:
-                            return (f"{sch_name} ({dist_name})".strip() if dist_name else sch_name).upper()
-        except Exception:
-            pass
+                s_list = data.get('data') or data.get('schoolList') or []
+                if s_list and isinstance(s_list, list):
+                    sch_name = s_list.get('schoolName') or s_list.get('schName') or ''
+                    dist_name = s_list.get('districtName') or ''
+                    if sch_name: return (f"{sch_name} ({dist_name})".strip() if dist_name else sch_name).upper()
+        except Exception: pass
         return ""
     def open_signup_popup(self, instance):
         is_mob = (kivy_platform != 'win')
@@ -898,6 +889,8 @@ class LoginScreen(Screen):
         h_inp = dp(42) if is_mob else 36
         fs_lbl = sp(13) if is_mob else 13
         self.signup_photo_path = ""
+        self._signup_otp_val = ""
+        self._signup_otp_mob = ""
 
         photo_strip = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(74) if is_mob else 68, spacing=dp(10), padding=(dp(4), dp(2)))
         signup_img = Image(source=get_exe_safe_path('logo.png'), size_hint=(None, None), size=(dp(60), dp(68)) if is_mob else (56, 64), allow_stretch=True, keep_ratio=False)
@@ -909,9 +902,7 @@ class LoginScreen(Screen):
         btn_s_cam = Button(text='CAMERA', size_hint_x=None, width=dp(85), background_color=(0.05, 0.45, 0.7, 1), bold=True, font_size=sp(11.5) if is_mob else 11)
         btn_s_gal = Button(text='GALLERY', size_hint_x=None, width=dp(85), background_color=(0.25, 0.25, 0.25, 1), bold=True, font_size=sp(11.5) if is_mob else 11)
         row_mini.add_widget(btn_s_cam); row_mini.add_widget(btn_s_gal)
-        icon_btns.add_widget(row_mini)
-        photo_strip.add_widget(icon_btns)
-        form.add_widget(photo_strip)
+        icon_btns.add_widget(row_mini); photo_strip.add_widget(icon_btns); form.add_widget(photo_strip)
 
         def _on_signup_photo(fp):
             if fp and os.path.exists(fp):
@@ -919,19 +910,10 @@ class LoginScreen(Screen):
                 dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"signup_{random.randint(1000,9999)}.jpg"))
                 comp_p = compress_image_under_30kb(fp, dest_p, max_kb=28)
                 self.signup_photo_path = comp_p
-                signup_img.source = comp_p
-                signup_img.reload()
+                signup_img.source = comp_p; signup_img.reload()
 
-        def _click_s_cam(x):
-            import random
-            dest_p = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"signup_{random.randint(1000,9999)}.jpg"))
-            if kivy_platform == 'win':
-                select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo)
-            else:
-                capture_mobile_camera_safe(dest_p, _on_signup_photo, self._msg_popup)
-
-        btn_s_cam.bind(on_press=_click_s_cam)
-        btn_s_gal.bind(on_press=lambda x: select_file_cross_platform("Select Profile Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo))
+        btn_s_cam.bind(on_press=lambda x: select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo) if kivy_platform == 'win' else capture_mobile_camera_safe(os.path.abspath(os.path.join(self.USER_PHOTO_DIR, "signup_cam.jpg")), _on_signup_photo, self._msg_popup))
+        btn_s_gal.bind(on_press=lambda x: select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _on_signup_photo))
 
         def add_field(label_txt, hint_txt, is_pass=False, max_c=None, digits_only=False):
             form.add_widget(Label(text=label_txt, color=(1, 1, 1, 1), bold=True, font_size=fs_lbl, size_hint_y=None, height=dp(22), halign='left'))
@@ -940,7 +922,29 @@ class LoginScreen(Screen):
             return ti
 
         in_name = add_field('Full Name *', 'Enter Your Full Name')
-        in_mob = add_field('Mobile Number (10 Digits) *', 'Enter 10-digit Mobile No.', max_c=10, digits_only=True)
+
+        form.add_widget(Label(text='Mobile Number (10 Digits) *', color=(1, 1, 1, 1), bold=True, font_size=fs_lbl, size_hint_y=None, height=dp(22), halign='left'))
+        mob_verify_row = BoxLayout(orientation='horizontal', spacing=dp(6), size_hint_y=None, height=h_inp)
+        in_mob = CustomText(hint_text='10-digit Mobile No.', max_chars=10, only_digits=True, multiline=False, size_hint_x=0.65)
+        btn_s_otp = Button(text='SEND OTP', size_hint_x=0.35, background_color=(0.05, 0.5, 0.75, 1), bold=True, font_size=sp(12.5) if is_mob else 12)
+        mob_verify_row.add_widget(in_mob); mob_verify_row.add_widget(btn_s_otp)
+        form.add_widget(mob_verify_row)
+
+        in_reg_otp = add_field('Mobile Verification OTP (6 Digits) *', 'Enter 6-Digit OTP', max_c=6, digits_only=True)
+
+        def _send_signup_otp(x):
+            mb = in_mob.text.strip()
+            if len(mb) != 10 or not mb.isdigit():
+                self._msg_popup('Alert', 'Please enter valid 10-digit Mobile Number first!'); return
+            import random
+            otp_c = str(random.randint(100000, 999999))
+            self._signup_otp_val = otp_c
+            self._signup_otp_mob = mb
+            in_reg_otp.text = otp_c
+            self._dispatch_sms_or_popup_otp(mb, otp_c, "Sign Up")
+
+        btn_s_otp.bind(on_press=_send_signup_otp)
+
         in_email = add_field('Email ID *', 'example@gmail.com')
 
         form.add_widget(Label(text='School UDISE Code (11 Digits) *', color=(1, 1, 1, 1), bold=True, font_size=fs_lbl, size_hint_y=None, height=dp(22), halign='left'))
@@ -954,35 +958,24 @@ class LoginScreen(Screen):
         in_pass = add_field('Create Password *', 'Enter Password', is_pass=True)
         in_cpass = add_field('Confirm Password *', 'Re-enter Password', is_pass=True)
 
-        def trigger_udise_lookup(*args):
-            u_code = in_udise.text.strip()
-            if len(u_code) < 11:
-                self._msg_popup('UDISE Alert', 'Please enter complete 11-digit School UDISE Code!'); return
-            found_sch = self._lookup_school_by_udise(u_code)
-            if found_sch:
-                in_school.text = found_sch
-                self._msg_popup('School Found', f'School Verified:\n{found_sch}')
-            else:
-                self._msg_popup('Manual Entry', 'School name not found online. Please type School Name manually.')
-
         in_udise.bind(text=lambda inst, val: setattr(in_school, 'text', self._lookup_school_by_udise(val.strip()) or in_school.text) if len(val.strip()) == 11 else None)
-        btn_find_sch.bind(on_press=trigger_udise_lookup)
+        btn_find_sch.bind(on_press=lambda x: setattr(in_school, 'text', self._lookup_school_by_udise(in_udise.text.strip()) or in_school.text) if len(in_udise.text.strip()) == 11 else self._msg_popup('UDISE Alert', 'Enter 11-digit UDISE Code!'))
 
         sc.add_widget(form); outer.add_widget(sc)
 
         b_bar = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44) if is_mob else 40)
-        btn_reg = Button(text='REGISTER NOW', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(14) if is_mob else 14)
+        btn_reg = Button(text='VERIFY & REGISTER', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(14) if is_mob else 14)
         btn_cls = Button(text='CANCEL', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(14) if is_mob else 14)
-        b_bar.add_widget(btn_reg); b_bar.add_widget(btn_cls)
-        outer.add_widget(b_bar)
+        b_bar.add_widget(btn_reg); b_bar.add_widget(btn_cls); outer.add_widget(b_bar)
 
-        pop_reg = Popup(title='Create New User Account (Sign Up)', content=outer, size_hint=(0.95, 0.90) if is_mob else (0.52, 0.88), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        pop_reg = Popup(title='Create Verified User Account (Sign Up)', content=outer, size_hint=(0.95, 0.92) if is_mob else (0.52, 0.90), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
         btn_cls.bind(on_press=pop_reg.dismiss)
-
         def save_new_user(ins):
-            nm, mb, em, ud, sc_nm, pw, cpw = in_name.text.strip(), in_mob.text.strip(), in_email.text.strip(), in_udise.text.strip(), in_school.text.strip(), in_pass.text.strip(), in_cpass.text.strip()
+            nm, mb, otp_in, em, ud, sc_nm, pw, cpw = in_name.text.strip(), in_mob.text.strip(), in_reg_otp.text.strip(), in_email.text.strip(), in_udise.text.strip(), in_school.text.strip(), in_pass.text.strip(), in_cpass.text.strip()
             if not nm: self._msg_popup('Validation Error', 'Please enter Full Name!'); return
             if len(mb) != 10 or not mb.isdigit(): self._msg_popup('Validation Error', 'Please enter valid 10-digit Mobile Number!'); return
+            if not self._signup_otp_val or mb != self._signup_otp_mob or otp_in != self._signup_otp_val:
+                self._msg_popup('OTP Verification Required', 'Please click SEND OTP and verify your 6-digit Mobile OTP!'); return
             if '@' not in em or '.' not in em: self._msg_popup('Validation Error', 'Please enter a valid Email ID!'); return
             if len(ud) != 11 or not ud.isdigit(): self._msg_popup('Validation Error', 'UDISE Code must be 11 digits!'); return
             if not sc_nm: self._msg_popup('Validation Error', 'School Name cannot be blank!'); return
@@ -994,7 +987,7 @@ class LoginScreen(Screen):
                 if self.signup_photo_path and os.path.exists(self.signup_photo_path):
                     final_user_photo = os.path.abspath(os.path.join(self.USER_PHOTO_DIR, f"user_{mb}.jpg"))
                     if os.path.abspath(self.signup_photo_path) != final_user_photo:
-                        shutil.copy(self.signup_photo_path, final_user_photo)
+                        shutil.copyfile(self.signup_photo_path, final_user_photo)
 
                 df_new = pd.DataFrame([{'Name': nm.upper(), 'Mobile': mb, 'Email': em.lower(), 'UDISE': ud, 'School Name': sc_nm.upper(), 'Password': pw, 'Photo': final_user_photo}])
                 if not os.path.exists(self.USERS_FILE):
@@ -1017,12 +1010,68 @@ class LoginScreen(Screen):
                     self.login_user_photo.source = final_user_photo; self.login_user_photo.reload()
                 self.lbl_welcome_user.text = f"WELCOME, {nm.upper()}"
                 pop_reg.dismiss()
-                self._msg_popup('Registration Successful', f'Welcome {nm}!\nYour account is created.\nLogin using Mobile: {mb}')
+                self._msg_popup('Account Verified & Created', f'Welcome {nm}!\nMobile {mb} verified successfully.\nYou can now login with Password or OTP.')
             except Exception as ex:
                 self._msg_popup('Save Error', f'Could not save account: {str(ex)}')
 
-        btn_reg.bind(on_press=save_new_user)
-        pop_reg.open()
+        btn_reg.bind(on_press=save_new_user); pop_reg.open()
+
+    def open_otp_login_popup(self, instance):
+        is_mob = (kivy_platform != 'win')
+        pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 18, spacing=dp(10))
+        h_inp = dp(42) if is_mob else 36
+
+        pl.add_widget(Label(text='Enter Registered Mobile Number:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        mob_row = BoxLayout(spacing=dp(6), size_hint_y=None, height=h_inp)
+        in_mob_otp = CustomText(text=self.username.text.strip(), hint_text='10-digit Mobile No.', max_chars=10, only_digits=True, multiline=False, size_hint_x=0.62)
+        btn_send = Button(text='SEND OTP', size_hint_x=0.38, background_color=(0.05, 0.45, 0.75, 1), bold=True, font_size=sp(12.5) if is_mob else 12)
+        mob_row.add_widget(in_mob_otp); mob_row.add_widget(btn_send); pl.add_widget(mob_row)
+
+        pl.add_widget(Label(text='Enter 6-Digit OTP:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
+        in_code = CustomText(hint_text='Enter 6-Digit OTP', max_chars=6, only_digits=True, multiline=False, size_hint_y=None, height=h_inp)
+        pl.add_widget(in_code)
+
+        btn_row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44) if is_mob else 40)
+        btn_verify = Button(text='VERIFY & LOGIN', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(13) if is_mob else 13)
+        btn_cls = Button(text='CANCEL', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(13) if is_mob else 13)
+        btn_row.add_widget(btn_verify); btn_row.add_widget(btn_cls); pl.add_widget(btn_row)
+
+        pop_otp = Popup(title='Login via Mobile OTP', content=pl, size_hint=(0.92, 0.48) if is_mob else (0.44, 0.42), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        btn_cls.bind(on_press=pop_otp.dismiss)
+        self._login_otp_val = ""; self._login_otp_mob = ""; self._login_otp_user_row = None
+
+        def _send_login_otp(x):
+            mb = in_mob_otp.text.strip()
+            if len(mb) != 10: self._msg_popup('Alert', 'Please enter 10-digit Mobile Number!'); return
+            found_user = None
+            if os.path.exists(self.USERS_FILE):
+                try:
+                    df_u = pd.read_excel(self.USERS_FILE, dtype=str)
+                    for _, r in df_u.iterrows():
+                        if str(r.get('Mobile', '')).strip().replace('.0', '') == mb:
+                            found_user = dict(r); break
+                except Exception: pass
+            if not found_user:
+                self._msg_popup('Not Registered', f'Mobile {mb} is not registered! Please Sign Up first.'); return
+            import random
+            otp_c = str(random.randint(100000, 999999))
+            self._login_otp_val = otp_c; self._login_otp_mob = mb; self._login_otp_user_row = found_user
+            in_code.text = otp_c
+            self._dispatch_sms_or_popup_otp(mb, otp_c, "Login")
+
+        def _verify_login_otp(x):
+            if not self._login_otp_val or in_mob_otp.text.strip() != self._login_otp_mob:
+                self._msg_popup('Alert', 'Please click SEND OTP first!'); return
+            if in_code.text.strip() != self._login_otp_val:
+                self._msg_popup('Invalid OTP', 'Entered OTP is incorrect!'); return
+            u_pic = str(self._login_otp_user_row.get('Photo', '')).strip()
+            if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
+                self.login_user_photo.source = u_pic; self.login_user_photo.reload()
+            App.get_running_app().logged_in_user = self._login_otp_user_row
+            pop_otp.dismiss(); self.manager.current = 'dashboard'
+
+        btn_send.bind(on_press=_send_login_otp); btn_verify.bind(on_press=_verify_login_otp); pop_otp.open()
+    
     def open_forgot_password_popup(self, instance):
         is_mob = (kivy_platform != 'win')
         pl = BoxLayout(orientation='vertical', padding=dp(15) if is_mob else 18, spacing=dp(10))
@@ -1032,8 +1081,7 @@ class LoginScreen(Screen):
         mob_row = BoxLayout(spacing=dp(6), size_hint_y=None, height=h_inp)
         in_reg_mob = CustomText(hint_text='10-digit Mobile No.', max_chars=10, only_digits=True, multiline=False, size_hint_x=0.62)
         btn_send_otp = Button(text='SEND OTP', size_hint_x=0.38, background_color=(0.05, 0.45, 0.75, 1), bold=True, font_size=sp(12.5) if is_mob else 12)
-        mob_row.add_widget(in_reg_mob); mob_row.add_widget(btn_send_otp)
-        pl.add_widget(mob_row)
+        mob_row.add_widget(in_reg_mob); mob_row.add_widget(btn_send_otp); pl.add_widget(mob_row)
 
         pl.add_widget(Label(text='Enter 6-Digit OTP:', color=(1, 1, 1, 1), bold=True, font_size=sp(13.5) if is_mob else 13, size_hint_y=None, height=dp(24)))
         in_otp = CustomText(hint_text='Enter OTP', max_chars=6, only_digits=True, multiline=False, size_hint_y=None, height=h_inp)
@@ -1050,94 +1098,59 @@ class LoginScreen(Screen):
         btn_row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(44) if is_mob else 40)
         btn_reset = Button(text='RESET PASSWORD', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(13) if is_mob else 13)
         btn_cancel = Button(text='CANCEL', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(13) if is_mob else 13)
-        btn_row.add_widget(btn_reset); btn_row.add_widget(btn_cancel)
-        pl.add_widget(btn_row)
+        btn_row.add_widget(btn_reset); btn_row.add_widget(btn_cancel); pl.add_widget(btn_row)
 
         pop_fp = Popup(title='Forgot Password - OTP Recovery', content=pl, size_hint=(0.94, 0.72) if is_mob else (0.48, 0.65), auto_dismiss=False, background='', background_color=(0.14, 0.14, 0.14, 0.98))
         btn_cancel.bind(on_press=pop_fp.dismiss)
-
-        self._generated_otp = ""
-        self._otp_target_mobile = ""
+        self._generated_otp = ""; self._otp_target_mobile = ""
 
         def send_otp_action(ins):
             mb = in_reg_mob.text.strip()
-            if len(mb) != 10:
-                self._msg_popup('Alert', 'Please enter 10-digit registered Mobile Number!'); return
-
+            if len(mb) != 10: self._msg_popup('Alert', 'Please enter 10-digit registered Mobile Number!'); return
             user_exists = False
             if os.path.exists(self.USERS_FILE):
                 try:
                     df_u = pd.read_excel(self.USERS_FILE, dtype=str)
                     for _, r in df_u.iterrows():
-                        if str(r.get('Mobile', '')).strip().replace('.0', '') == mb:
-                            user_exists = True; break
-                except Exception:
-                    pass
-
+                        if str(r.get('Mobile', '')).strip().replace('.0', '') == mb: user_exists = True; break
+                except Exception: pass
             if not user_exists:
                 self._msg_popup('Not Registered', f'Mobile Number {mb} is not registered!\nPlease Sign Up first.'); return
-
             import random
             otp_code = str(random.randint(100000, 999999))
-            self._generated_otp = otp_code
-            self._otp_target_mobile = mb
-
-            sms_sent = False
-            if kivy_platform == 'android':
-                try:
-                    from android.permissions import request_permissions, Permission
-                    request_permissions([Permission.SEND_SMS])
-                    from jnius import autoclass
-                    SmsManager = autoclass('android.telephony.SmsManager')
-                    SmsManager.getDefault().sendTextMessage(mb, None, f"Primary School Panauta ERP OTP: {otp_code}", None, None)
-                    sms_sent = True
-                except Exception:
-                    sms_sent = False
-
-            if sms_sent:
-                self._msg_popup('OTP Sent', f'6-Digit OTP has been sent via SMS to {mb}.')
-            else:
-                self._msg_popup('OTP Generated', f'OTP for {mb} is: {otp_code}\n(Enter this OTP to reset password)')
+            self._generated_otp = otp_code; self._otp_target_mobile = mb
+            in_otp.text = otp_code
+            self._dispatch_sms_or_popup_otp(mb, otp_code, "Password Reset")
 
         def reset_password_action(ins):
             mb, entered_otp, npw, cnpw = in_reg_mob.text.strip(), in_otp.text.strip(), in_new_pw.text.strip(), in_cnew_pw.text.strip()
             if not self._generated_otp or mb != self._otp_target_mobile:
                 self._msg_popup('OTP Error', 'Please click SEND OTP first!'); return
             if entered_otp != self._generated_otp:
-                self._msg_popup('Invalid OTP', 'Entered OTP is incorrect! Please check and try again.'); return
-            if len(npw) < 4:
-                self._msg_popup('Validation Error', 'New Password must be at least 4 characters!'); return
-            if npw != cnpw:
-                self._msg_popup('Validation Error', 'New Password and Confirm Password do not match!'); return
-
+                self._msg_popup('Invalid OTP', 'Entered OTP is incorrect!'); return
+            if len(npw) < 4: self._msg_popup('Validation Error', 'New Password must be at least 4 characters!'); return
+            if npw != cnpw: self._msg_popup('Validation Error', 'Passwords do not match!'); return
             try:
                 df_u = pd.read_excel(self.USERS_FILE, dtype=str)
                 updated_rows = []
                 for _, r in df_u.iterrows():
                     rd = dict(r)
-                    if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb:
-                        rd['Password'] = npw
+                    if str(rd.get('Mobile', '')).strip().replace('.0', '') == mb: rd['Password'] = npw
                     updated_rows.append(rd)
                 pd.DataFrame(updated_rows, columns=df_u.columns).to_excel(self.USERS_FILE, index=False)
-
                 self._generated_otp = ""; self.username.text = mb; self.password.text = ""
                 pop_fp.dismiss()
-                self._msg_popup('Password Updated', 'Your password has been reset successfully!\nPlease login with your new password.')
+                self._msg_popup('Password Updated', 'Password reset successfully! Please login.')
             except Exception as ex:
                 self._msg_popup('Error', f'Password update failed: {str(ex)}')
 
-        btn_send_otp.bind(on_press=send_otp_action)
-        btn_reset.bind(on_press=reset_password_action)
-        pop_fp.open()
+        btn_send_otp.bind(on_press=send_otp_action); btn_reset.bind(on_press=reset_password_action); pop_fp.open()
 
     def validate(self, instance):
-        u_in = self.username.text.strip()
-        p_in = self.password.text.strip()
-        if not u_in or not p_in:
-            self._msg_popup('Login Alert', 'Please enter Mobile Number and Password!'); return
+        u_in, p_in = self.username.text.strip(), self.password.text.strip()
+        if not u_in or not p_in: self._msg_popup('Login Alert', 'Please enter Mobile Number and Password!'); return
         if u_in == "admin" and p_in == "1234":
             self.manager.current = 'dashboard'; return
-
         if os.path.exists(self.USERS_FILE):
             try:
                 df_u = pd.read_excel(self.USERS_FILE, dtype=str)
@@ -1147,12 +1160,9 @@ class LoginScreen(Screen):
                         if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
                             self.login_user_photo.source = u_pic; self.login_user_photo.reload()
                         App.get_running_app().logged_in_user = dict(r)
-                        self.manager.current = 'dashboard'
-                        return
-            except Exception:
-                pass
-
-        self._msg_popup('Login Failed', 'Invalid Mobile Number or Password!\nNew users please click "New User? Sign Up".')
+                        self.manager.current = 'dashboard'; return
+            except Exception: pass
+        self._msg_popup('Login Failed', 'Invalid Mobile Number or Password! Use Sign Up or Login via OTP.')
 
 class DashboardScreen(Screen):
     def __init__(self, **kwargs):
@@ -1167,27 +1177,35 @@ class DashboardScreen(Screen):
         
         BASIC_LOGO_FILE = get_exe_safe_path('basic.png')
         if os.path.exists(BASIC_LOGO_FILE):
-            self.header.add_widget(Image(source=BASIC_LOGO_FILE, size_hint_x=0.14 if is_mob else 0.10, allow_stretch=True))
+            self.header.add_widget(Image(source=BASIC_LOGO_FILE, size_hint_x=0.12 if is_mob else 0.09, allow_stretch=True))
         else:
-            self.header.add_widget(BoxLayout(size_hint_x=0.10))
+            self.header.add_widget(BoxLayout(size_hint_x=0.09))
             
-        tb = BoxLayout(orientation='vertical', size_hint_x=0.72 if is_mob else 0.80)
-        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(15) if is_mob else 40, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
-        lbl_sub = Label(text='BLOCK- WAZIRGANJ, DISTRICT- BUDAUN, 243601', font_size=sp(11) if is_mob else 20, bold=True, color=(0.9, 1, 0.9, 1), halign='center', valign='middle')
+        tb = BoxLayout(orientation='vertical', size_hint_x=0.60 if is_mob else 0.72)
+        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(14) if is_mob else 36, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
+        lbl_sub = Label(text='BLOCK- WAZIRGANJ, DISTRICT- BUDAUN, 243601', font_size=sp(10.5) if is_mob else 18, bold=True, color=(0.9, 1, 0.9, 1), halign='center', valign='middle')
         tb.add_widget(self.lbl_dash_main); tb.add_widget(lbl_sub)
         self.lbl_dash_main.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
         lbl_sub.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
-
         self.header.add_widget(tb)
         
         resolved_school_logo = get_exe_safe_path('logo.png')
         if os.path.exists(resolved_school_logo): 
-            self.header.add_widget(Image(source=resolved_school_logo, size_hint_x=0.14 if is_mob else 0.10, allow_stretch=True))
+            self.header.add_widget(Image(source=resolved_school_logo, size_hint_x=0.11 if is_mob else 0.08, allow_stretch=True))
         else:
-            self.header.add_widget(BoxLayout(size_hint_x=0.10))
+            self.header.add_widget(BoxLayout(size_hint_x=0.08))
+
+        # दाईं ओर यूज़र की फोटो आइकन और नाम
+        user_badge = BoxLayout(orientation='vertical', size_hint_x=0.17 if is_mob else 0.11, spacing=2, padding=(2, 2))
+        self.dash_user_img = Image(source=resolved_school_logo if os.path.exists(resolved_school_logo) else '', size_hint=(None, None), size=(dp(36), dp(36)) if is_mob else (50, 50), pos_hint={'center_x': 0.5}, allow_stretch=True, keep_ratio=False)
+        self.dash_user_lbl = Label(text='Admin', font_size=sp(10) if is_mob else 12, bold=True, color=(1, 1, 1, 1), size_hint_y=None, height=dp(16) if is_mob else 20, halign='center')
+        self.dash_user_lbl.bind(size=self.dash_user_lbl.setter('text_size'))
+        user_badge.add_widget(self.dash_user_img)
+        user_badge.add_widget(self.dash_user_lbl)
+        self.header.add_widget(user_badge)
             
         self.outer.add_widget(self.header)
-        menu = ['STUDENT REGISTRATION', 'STUDENT ATTENDANCE', 'MARKS ENTRY', 'RESULTS', 'HEIGHT & WEIGHT', 'D.B.T.', 'MDM', 'STAFF DETAIL', 'S.M.C. MEMBERS', 'COOK DETAILS', 'GRANT DETAILS', 'TRANSFER CERTIFICATE', 'EXIT']
+        menu = ['STUDENT REGISTRATION', 'STUDENT ATTENDANCE', 'MARKS ENTRY', 'RESULTS', 'HEIGHT & WEIGHT', 'D.B.T.', 'MDM', 'STAFF DETAIL', 'S.M.C. MEMBERS', 'COOK DETAILS', 'GRANT DETAILS', 'TRANSFER CERTIFICATE', 'PHOTO GALLERY', 'GOOGLE DRIVE SYNC', 'LOGOUT']
 
         if is_mob:
             # मोबाइल Portrait मोड: ऊपर क्षैतिज स्क्रॉल मेनू बार + नीचे 100% फुल पेज
@@ -1215,7 +1233,7 @@ class DashboardScreen(Screen):
             sidebar_buttons_grid = GridLayout(cols=1, spacing=8, padding=(10, 15, 10, 15), size_hint_y=None)
             sidebar_buttons_grid.bind(minimum_height=sidebar_buttons_grid.setter('height'))
             for name in menu:
-                btn_color = (0.7, 0.1, 0.1, 1) if name == 'EXIT' else (0.02, 0.45, 0.2, 1)
+                btn_color = (0.7, 0.1, 0.1, 1) if name in ['EXIT', 'LOGOUT'] else (0.02, 0.45, 0.2, 1)
                 btn = Button(text=name, background_color=btn_color, font_size=12, bold=True, size_hint_y=None, height=44, background_normal='')
                 btn.bind(on_press=self.menu_nav)
                 sidebar_buttons_grid.add_widget(btn)
@@ -1233,13 +1251,26 @@ class DashboardScreen(Screen):
         Window.unbind(on_key_down=self.on_keyboard_down) if hasattr(Window, 'on_key_down') else None
         Window.bind(on_key_down=self.on_keyboard_down)
 
-    def on_pre_enter(self, *args):
+def on_pre_enter(self, *args):
         u_info = getattr(App.get_running_app(), 'logged_in_user', None)
         if u_info and isinstance(u_info, dict):
+            u_nm = str(u_info.get('Name', 'User')).strip()
+            u_pic = str(u_info.get('Photo', '')).strip()
             sch_nm = str(u_info.get('School Name', '')).strip()
             ud_code = str(u_info.get('UDISE', '')).strip()
-            if sch_nm and sch_nm.lower() != 'nan':
+            if u_nm and u_nm.lower() != 'nan':
+                self.dash_user_lbl.text = u_nm.split()[0]
+            if u_pic and u_pic.lower() != 'nan' and os.path.exists(u_pic):
+                self.dash_user_img.source = u_pic
+                self.dash_user_img.reload()
+            if sch_nm and sch_nm.lower() != 'nan' and hasattr(self, 'lbl_dash_main'):
                 self.lbl_dash_main.text = f"{sch_nm} - {ud_code}" if ud_code else sch_nm
+
+    def logout_user_action(self):
+        App.get_running_app().logged_in_user = None
+        if not self.manager.has_screen('login'):
+            self.manager.add_widget(LoginScreen(name='login'))
+        self.manager.current = 'login'
 
     def popup(self, title, msg):
         is_mob = (kivy_platform != 'win')
@@ -1371,16 +1402,27 @@ class DashboardScreen(Screen):
         
         split_master_box.add_widget(left_panel)
         
-        # ➡️ [LIVE BULLETIN BOARD PANEL]
-        right_bulletin_panel = BoxLayout(orientation='vertical', spacing=dp(8) if is_mob else 10, size_hint=(1, None) if is_mob else (0.25, 1), height=dp(320) if is_mob else 500, padding=dp(8) if is_mob else 6)
+        # ➡️ [LIVE BULLETIN BOARD PANEL - Marquee Ticker + Image/Document Viewer]
+        right_bulletin_panel = BoxLayout(orientation='vertical', spacing=dp(8) if is_mob else 10, size_hint=(1, None) if is_mob else (0.25, 1), height=dp(360) if is_mob else 500, padding=dp(8) if is_mob else 6)
         with right_bulletin_panel.canvas.before:
             Color(0.12, 0.16, 0.22, 1)
             right_bulletin_panel.rect = Rectangle(size=right_bulletin_panel.size, pos=right_bulletin_panel.pos)
         right_bulletin_panel.bind(size=lambda ins, val: setattr(right_bulletin_panel.rect, 'size', ins.size), pos=lambda ins, val: setattr(right_bulletin_panel.rect, 'pos', ins.pos))
         
-        right_bulletin_panel.add_widget(Label(text="📢 LIVE BULLETIN BOARD", font_size=sp(15) if is_mob else 15, bold=True, color=(1, 1, 0.6, 1), size_hint_y=None, height=dp(30) if is_mob else 25))
+        right_bulletin_panel.add_widget(Label(text="LIVE BULLETIN BOARD", font_size=sp(15) if is_mob else 15, bold=True, color=(1, 1, 0.6, 1), size_hint_y=None, height=dp(28) if is_mob else 25))
         
-        btn_upload_bulletin = Button(text="📤 UPLOAD NEW NOTICE / PDF", background_color=(0.02, 0.45, 0.35, 1), bold=True, font_size=sp(13) if is_mob else 12, size_hint_y=None, height=dp(42) if is_mob else 36)
+        # 🎞️ चलता हुआ Live Marquee Ticker पट्टी
+        marquee_bar = BoxLayout(size_hint_y=None, height=dp(28) if is_mob else 26, padding=(dp(6), 0))
+        with marquee_bar.canvas.before:
+            Color(0.65, 0.1, 0.1, 1)
+            marquee_bar.rect = Rectangle(size=marquee_bar.size, pos=marquee_bar.pos)
+        marquee_bar.bind(size=lambda ins, val: setattr(marquee_bar.rect, 'size', ins.size), pos=lambda ins, val: setattr(marquee_bar.rect, 'pos', ins.pos))
+        
+        marquee_lbl = Label(text="WELCOME TO DIGITAL NOTICE BOARD - PRIMARY SCHOOL PANAUTA   ***   ", font_size=sp(12) if is_mob else 12, bold=True, color=(1, 1, 0.85, 1), halign='left', valign='middle')
+        marquee_bar.add_widget(marquee_lbl)
+        right_bulletin_panel.add_widget(marquee_bar)
+
+        btn_upload_bulletin = Button(text="UPLOAD NOTICE / PDF / DOC", background_color=(0.02, 0.45, 0.35, 1), bold=True, font_size=sp(13) if is_mob else 12, size_hint_y=None, height=dp(42) if is_mob else 36)
         
         def local_notice_upload_action(instance):
             def on_notice_picked(file_path):
@@ -1392,17 +1434,17 @@ class DashboardScreen(Screen):
                     f_base = os.path.basename(file_path)
                     dest_path = os.path.abspath(os.path.join('Bulletin_Uploads', f_base))
                     if os.path.abspath(file_path) != dest_path:
-                        shutil.copy(file_path, dest_path)
+                        shutil.copyfile(file_path, dest_path)
                     
                     from kivy.uix.textinput import TextInput
                     from kivy.uix.popup import Popup
                     pl = BoxLayout(orientation='vertical', padding=dp(12) if is_mob else 10, spacing=dp(10) if is_mob else 8)
-                    pl.add_widget(Label(text="Enter Brief Notice Headline Caption:", bold=True, font_size=sp(14) if is_mob else 13))
+                    pl.add_widget(Label(text="Enter Brief Notice Headline Caption:", bold=True, color=(1,1,1,1), font_size=sp(14) if is_mob else 13))
                     cap_in = TextInput(multiline=False, size_hint_y=None, height=dp(44) if is_mob else 36, font_size=sp(15) if is_mob else 14)
                     pl.add_widget(cap_in)
-                    btn_save_n = Button(text='🔔 PUBLISH TO BOARD', background_color=(0,0.6,0.1,1), bold=True, size_hint_y=None, height=dp(44) if is_mob else 38, font_size=sp(14) if is_mob else 13)
+                    btn_save_n = Button(text='PUBLISH TO BOARD', background_color=(0,0.6,0.1,1), bold=True, size_hint_y=None, height=dp(44) if is_mob else 38, font_size=sp(14) if is_mob else 13)
                     pl.add_widget(btn_save_n)
-                    pop = Popup(title="Notice Caption Manager", content=pl, size_hint=(0.92, 0.42) if is_mob else (0.7, 0.35))
+                    pop = Popup(title="Notice Caption Manager", content=pl, size_hint=(0.92, 0.42) if is_mob else (0.7, 0.35), background='', background_color=(0.14, 0.14, 0.14, 0.98))
                     
                     def commit_notice_to_excel(x):
                         txt_cap = cap_in.text.strip().upper() if cap_in.text.strip() else "OFFICIAL ORDER RELEASED"
@@ -1411,7 +1453,7 @@ class DashboardScreen(Screen):
                         if not os.path.exists(BULLETIN_DB):
                             df_new.to_excel(BULLETIN_DB, index=False)
                         else:
-                            pd.concat([pd.read_excel(BULLETIN_DB), df_new], ignore_index=True).to_excel(BULLETIN_DB, index=False)
+                            pd.concat([pd.read_excel(BULLETIN_DB, dtype=str), df_new], ignore_index=True).to_excel(BULLETIN_DB, index=False)
                         pop.dismiss()
                         self.popup('Live', 'Notice published successfully!')
                         self.show_welcome()
@@ -1422,8 +1464,8 @@ class DashboardScreen(Screen):
                     self.popup('Error', str(ex))
 
             select_file_cross_platform(
-                "Select Notice (Image or PDF Files)",
-                [("Notice Files", "*.png *.jpg *.jpeg *.pdf")],
+                "Select Notice (Documents, PDF or Images)",
+                [("Documents & Images", "*.pdf *.doc *.docx *.xlsx *.png *.jpg *.jpeg")],
                 on_notice_picked
             )
         btn_upload_bulletin.bind(on_press=local_notice_upload_action)
@@ -1433,6 +1475,7 @@ class DashboardScreen(Screen):
         notices_grid = GridLayout(cols=1, spacing=dp(10) if is_mob else 10, size_hint_y=None, padding=5)
         notices_grid.bind(minimum_height=notices_grid.setter('height'))
         
+        ticker_headlines = []
         if os.path.exists(BULLETIN_DB):
             try:
                 df_bulletin = pd.read_excel(BULLETIN_DB, dtype=str)
@@ -1441,6 +1484,7 @@ class DashboardScreen(Screen):
                     n_date = str(row.get('Date', ''))
                     n_cap = str(row.get('Caption', ''))
                     n_path = str(row.get('File_Path', ''))
+                    ticker_headlines.append(f"[{n_date}] {n_cap}")
                     
                     notice_box = BoxLayout(orientation='vertical', spacing=2, padding=8, size_hint_y=None, height=dp(80) if is_mob else 75)
                     with notice_box.canvas.before:
@@ -1448,11 +1492,20 @@ class DashboardScreen(Screen):
                         notice_box.rect = Rectangle(size=notice_box.size, pos=notice_box.pos)
                     notice_box.bind(size=lambda ins, val: setattr(notice_box.rect, 'size', ins.size), pos=lambda ins, val: setattr(notice_box.rect, 'pos', ins.pos))
                     
-                    notice_box.add_widget(Label(text=f"📅 Date: {n_date}", font_size=sp(11.5) if is_mob else 11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=dp(18) if is_mob else 16, halign='left'))
+                    notice_box.add_widget(Label(text=f"Date: {n_date}", font_size=sp(11.5) if is_mob else 11, color=(1, 1, 0.6, 1), bold=True, size_hint_y=None, height=dp(18) if is_mob else 16, halign='left'))
                     
                     btn_lnk = Button(text=n_cap, font_size=sp(13.5) if is_mob else 13.5, bold=True, color=(1,1,1,1), background_normal='', background_color=(0,0,0,0), halign='left', valign='middle')
                     btn_lnk.bind(size=btn_lnk.setter('text_size'))
-                    btn_lnk.bind(on_press=lambda instance, pth=n_path: open_file_cross_platform(pth) if os.path.exists(pth) else self.popup('Alert', 'Notice file missing!'))
+
+                    def _open_notice_item(inst, pth=n_path, cap_t=n_cap):
+                        if not os.path.exists(pth):
+                            self.popup('Alert', 'Notice file missing!'); return
+                        if pth.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                            open_image_zoom_popup(pth, cap_t)
+                        else:
+                            open_file_cross_platform(pth)
+
+                    btn_lnk.bind(on_press=_open_notice_item)
                     
                     notice_box.add_widget(btn_lnk)
                     notices_grid.add_widget(notice_box)
@@ -1460,11 +1513,31 @@ class DashboardScreen(Screen):
                 pass
         else:
             notice_box = BoxLayout(orientation='vertical', padding=6, size_hint_y=None, height=dp(65) if is_mob else 60)
-            notice_box.add_widget(Label(text="📢 NO OFFICIAL NOTICES YET\nWelcome to Digital Bulletin Center.", font_size=sp(12.5) if is_mob else 12, color=(0.8,0.8,0.8,1), halign='center'))
+            notice_box.add_widget(Label(text="NO OFFICIAL NOTICES YET\nWelcome to Digital Bulletin Center.", font_size=sp(12.5) if is_mob else 12, color=(0.8,0.8,0.8,1), halign='center'))
             notices_grid.add_widget(notice_box)
             
         notices_scroll.add_widget(notices_grid)
         right_bulletin_panel.add_widget(notices_scroll)
+
+        # 🎞️ Marquee Ticker व Auto-Scroll एनिमेशन इंजन
+        from kivy.clock import Clock
+        if hasattr(self, '_bulletin_marquee_ev') and self._bulletin_marquee_ev:
+            Clock.unschedule(self._bulletin_marquee_ev)
+
+        full_ticker_str = ("   ***   ".join(ticker_headlines) + "   ***   ") if ticker_headlines else "WELCOME TO DIGITAL BULLETIN BOARD - PRIMARY SCHOOL PANAUTA   ***   "
+        marquee_lbl.text = full_ticker_str
+
+        def _tick_marquee(dt):
+            if self.current_view != 'welcome':
+                return
+            t = marquee_lbl.text
+            if len(t) > 1:
+                marquee_lbl.text = t[1:] + t[0]
+            if notices_grid.height > notices_scroll.height:
+                nxt = notices_scroll.scroll_y - 0.008
+                notices_scroll.scroll_y = 1.0 if nxt <= 0 else nxt
+
+        self._bulletin_marquee_ev = Clock.schedule_interval(_tick_marquee, 0.16)
         
         split_master_box.add_widget(right_bulletin_panel)
         if is_mob:
@@ -1474,19 +1547,22 @@ class DashboardScreen(Screen):
             self.content_area.add_widget(split_master_box)
 
     def menu_nav(self, instance):
-        if instance.text == 'EXIT': App.get_running_app().stop()
+        if instance.text in ['EXIT', 'LOGOUT']:
+            self.logout_user_action()
         elif instance.text == 'STUDENT REGISTRATION': self.load_form()
         elif instance.text == 'STUDENT ATTENDANCE': self.load_attendance_view()
         elif instance.text == 'MARKS ENTRY': self.load_marks_entry_view()
         elif instance.text == 'HEIGHT & WEIGHT': self.load_height_weight_view()
-        elif instance.text == 'D.B.T.': self.load_dbt_view() 
+        elif instance.text == 'D.B.T.': self.load_dbt_view()
         elif instance.text == 'MDM': self.load_mdm_view()
-        elif instance.text == 'STAFF DETAIL': self.load_staff_view() 
+        elif instance.text == 'STAFF DETAIL': self.load_staff_view()
         elif instance.text == 'TRANSFER CERTIFICATE': self.load_tc_view()
         elif instance.text == 'GRANT DETAILS': self.load_grant_details_view()
         elif instance.text == 'S.M.C. MEMBERS': self.load_smc_details_view()
         elif instance.text == 'COOK DETAILS': self.load_cook_details_view()
-        elif instance.text == 'RESULTS': self.open_results_search_popup(None) 
+        elif instance.text == 'RESULTS': self.open_results_search_popup(None)
+        elif instance.text == 'PHOTO GALLERY': self.load_photo_gallery_view()
+        elif instance.text == 'GOOGLE DRIVE SYNC': self.open_google_drive_sync_popup()
         else:
             self.content_area.clear_widgets()
             with self.content_area.canvas.before: 
@@ -8621,6 +8697,172 @@ class DashboardScreen(Screen):
             open_file_cross_platform(out_pdf_name)
         except Exception as ex:
             self.popup('Print Error', f"Ledger PDF Compilation Failed: {str(ex)}")
+    
+def load_photo_gallery_view(self):
+        self.content_area.clear_widgets()
+        self.current_view = 'photo_gallery'
+        is_mob = (kivy_platform != 'win')
+        GALLERY_DIR = 'School_Photo_Gallery'
+        GALLERY_DB = 'Photo_Gallery_Database.xlsx'
+        os.makedirs(GALLERY_DIR, exist_ok=True)
+
+        hdr = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(46) if is_mob else 44, spacing=dp(8), padding=dp(4))
+        hdr.add_widget(Label(text='SCHOOL PHOTO GALLERY (<30KB)', font_size=sp(15) if is_mob else 20, bold=True, color=(0.02, 0.35, 0.2, 1)))
+        btn_cam = Button(text='CAMERA', size_hint_x=None, width=dp(85), background_color=(0.05, 0.45, 0.7, 1), bold=True, font_size=sp(12))
+        btn_gal = Button(text='GALLERY', size_hint_x=None, width=dp(85), background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(12))
+        hdr.add_widget(btn_cam); hdr.add_widget(btn_gal)
+        self.content_area.add_widget(hdr)
+
+        def _save_gallery_photo(src_fp):
+            if not src_fp or not os.path.exists(src_fp): return
+            import random
+            fname = f"Gallery_{datetime.now().strftime('%Y%m%d')}_{random.randint(100,999)}.jpg"
+            dest_p = os.path.abspath(os.path.join(GALLERY_DIR, fname))
+            comp_p = compress_image_under_30kb(src_fp, dest_p, max_kb=28)
+
+            pl = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(8))
+            pl.add_widget(Label(text='Enter Photo Title / Event Name:', bold=True, color=(1,1,1,1), font_size=sp(14)))
+            cap_in = CustomText(hint_text='e.g. Annual Function 2026', multiline=False, size_hint_y=None, height=dp(42))
+            pl.add_widget(cap_in)
+            btn_ok = Button(text='SAVE TO GALLERY', background_color=(0.05, 0.55, 0.25, 1), bold=True, size_hint_y=None, height=dp(42))
+            pl.add_widget(btn_ok)
+            pop = Popup(title='Photo Caption', content=pl, size_hint=(0.90, 0.38) if is_mob else (0.45, 0.35), background='', background_color=(0.14, 0.14, 0.14, 0.98))
+
+            def _commit_gal(x):
+                title_t = cap_in.text.strip().upper() or 'SCHOOL EVENT'
+                df_n = pd.DataFrame([{'Date': datetime.now().strftime('%d-%m-%Y'), 'Title': title_t, 'Path': comp_p}])
+                if not os.path.exists(GALLERY_DB):
+                    df_n.to_excel(GALLERY_DB, index=False)
+                else:
+                    pd.concat([pd.read_excel(GALLERY_DB, dtype=str), df_n], ignore_index=True).to_excel(GALLERY_DB, index=False)
+                pop.dismiss()
+                self.popup('Saved', 'Compressed Photo (<30KB) added to Gallery!')
+                self.load_photo_gallery_view()
+
+            btn_ok.bind(on_press=_commit_gal)
+            pop.open()
+
+        def _cam_gal(x):
+            import random
+            tmp_p = os.path.abspath(os.path.join(GALLERY_DIR, f"tmp_{random.randint(1000,9999)}.jpg"))
+            if kivy_platform == 'win':
+                select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _save_gallery_photo)
+            else:
+                capture_mobile_camera_safe(tmp_p, _save_gallery_photo, self.popup)
+
+        btn_cam.bind(on_press=_cam_gal)
+        btn_gal.bind(on_press=lambda x: select_file_cross_platform("Select Photo", [("Images", "*.png *.jpg *.jpeg")], _save_gallery_photo))
+
+        sc = ScrollView(do_scroll_x=False, do_scroll_y=True)
+        grid = GridLayout(cols=2 if is_mob else 4, spacing=dp(10), padding=dp(8), size_hint_y=None)
+        grid.bind(minimum_height=grid.setter('height'))
+
+        from kivy.uix.behaviors import ButtonBehavior
+        class GalImg(ButtonBehavior, Image): pass
+
+        def _zoom_gal_img(p, t):
+            box = BoxLayout(orientation='vertical', padding=10, spacing=10)
+            box.add_widget(Image(source=p, allow_stretch=True, keep_ratio=True, size_hint=(1, 0.88)))
+            bc = Button(text='CLOSE', size_hint=(1, 0.12), background_color=(0.75, 0.15, 0.15, 1), bold=True)
+            box.add_widget(bc)
+            pp = Popup(title=t, content=box, size_hint=(0.94, 0.82) if is_mob else (0.8, 0.82))
+            bc.bind(on_press=pp.dismiss); pp.open()
+
+        items = []
+        if os.path.exists(GALLERY_DB):
+            try:
+                df_g = pd.read_excel(GALLERY_DB, dtype=str)
+                items = [dict(r) for _, r in df_g.iterrows()]
+            except Exception: pass
+
+        if not items:
+            grid.add_widget(Label(text='No photos uploaded yet. Tap CAMERA or GALLERY above.', color=(0.2, 0.2, 0.2, 1), size_hint_y=None, height=dp(60)))
+        else:
+            for it in reversed(items):
+                p_img = str(it.get('Path', '')).strip()
+                t_img = str(it.get('Title', 'PHOTO')).strip()
+                d_img = str(it.get('Date', '')).strip()
+                if os.path.exists(p_img):
+                    card = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(175), padding=4, spacing=3)
+                    with card.canvas.before:
+                        Color(1, 1, 1, 1)
+                        card.bg = Rectangle(size=card.size, pos=card.pos)
+                    card.bind(size=lambda ins, val: setattr(ins.bg, 'size', ins.size), pos=lambda ins, val: setattr(ins.bg, 'pos', ins.pos))
+                    im = GalImg(source=p_img, allow_stretch=True, keep_ratio=False, size_hint=(1, 0.76))
+                    im.bind(on_release=lambda x, fp=p_img, ft=t_img: _zoom_gal_img(fp, ft))
+                    card.add_widget(im)
+                    lbl_t = Label(text=f"{t_img}\n({d_img})", color=(0, 0.2, 0.4, 1), font_size=sp(11), bold=True, halign='center', size_hint=(1, 0.24))
+                    lbl_t.bind(size=lbl_t.setter('text_size'))
+                    card.add_widget(lbl_t)
+                    grid.add_widget(card)
+
+        sc.add_widget(grid)
+        self.content_area.add_widget(sc)
+
+    def open_google_drive_sync_popup(self):
+        is_mob = (kivy_platform != 'win')
+        CFG_FILE = 'Drive_Sync_Config.txt'
+        saved_url = open(CFG_FILE, 'r').read().strip() if os.path.exists(CFG_FILE) else ''
+
+        pl = BoxLayout(orientation='vertical', padding=dp(14) if is_mob else 18, spacing=dp(10))
+        lbl = Label(text='Centralized School Data Sync (Google Drive Web App URL):\nAll teachers using the same Drive URL share live school data.', color=(1,1,1,1), font_size=sp(12.5) if is_mob else 13, size_hint_y=None, height=dp(55))
+        lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(8), None)))
+        pl.add_widget(lbl)
+
+        in_url = CustomText(text=saved_url, hint_text='Paste Google Apps Script Web App URL here...', multiline=False, size_hint_y=None, height=dp(44))
+        pl.add_widget(in_url)
+
+        btn_push = Button(text='1. UPLOAD / BACKUP DATA TO GOOGLE DRIVE', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(13), size_hint_y=None, height=dp(44))
+        btn_pull = Button(text='2. DOWNLOAD / SYNC DATA FROM GOOGLE DRIVE', background_color=(0.08, 0.42, 0.78, 1), bold=True, font_size=sp(13), size_hint_y=None, height=dp(44))
+        btn_cls = Button(text='CLOSE', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(13), size_hint_y=None, height=dp(42))
+        pl.add_widget(btn_push); pl.add_widget(btn_pull); pl.add_widget(btn_cls)
+
+        pop = Popup(title='Google Drive Centralized Database Sync', content=pl, size_hint=(0.94, 0.65) if is_mob else (0.52, 0.55), background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        btn_cls.bind(on_press=pop.dismiss)
+
+        db_files = ['Student_Database.xlsx', 'Marks_Database.xlsx', 'Attendance_Database.xlsx', 'DBT_Database.xlsx', 'MDM_Database.xlsx', 'MDM_Account_Database.xlsx', 'MDM_Ration_Stock_Database.xlsx', 'Staff_Database.xlsx', 'SMC_Members_Database.xlsx', 'Cook_Members_Database.xlsx', 'School_Grant_Database.xlsx', 'TC_Database.xlsx', 'Bulletin_Database.xlsx', 'Users_Database.xlsx', 'Photo_Gallery_Database.xlsx']
+
+        def _push_drive(x):
+            url = in_url.text.strip()
+            if not url.startswith('http'):
+                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!'); return
+            open(CFG_FILE, 'w').write(url)
+            try:
+                import base64, json, urllib.request
+                payload = {'action': 'upload', 'files': {}}
+                for f in db_files:
+                    if os.path.exists(f):
+                        with open(f, 'rb') as fp:
+                            payload['files'][f] = base64.b64encode(fp.read()).decode('utf-8')
+                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=15)
+                pop.dismiss()
+                self.popup('Drive Backup Complete', f"{len(payload['files'])} Database files uploaded to Google Drive!")
+            except Exception as ex:
+                self.popup('Sync Error', f'Drive Upload Failed: {str(ex)}')
+
+        def _pull_drive(x):
+            url = in_url.text.strip()
+            if not url.startswith('http'):
+                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!'); return
+            open(CFG_FILE, 'w').write(url)
+            try:
+                import base64, json, urllib.request
+                req = urllib.request.Request(url, data=json.dumps({'action': 'download'}).encode('utf-8'), headers={'Content-Type': 'application/json'})
+                resp = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
+                files_map = resp.get('files', {})
+                for fname, b64_data in files_map.items():
+                    with open(fname, 'wb') as fp:
+                        fp.write(base64.b64decode(b64_data))
+                pop.dismiss()
+                self.popup('Drive Sync Complete', f"{len(files_map)} Database files synced from Google Drive!")
+            except Exception as ex:
+                self.popup('Sync Error', f'Drive Download Failed: {str(ex)}')
+
+        btn_push.bind(on_press=_push_drive)
+        btn_pull.bind(on_press=_pull_drive)
+        pop.open()
+
 
 class SplashLoadingScreen(Screen):
     def __init__(self, **kwargs):
