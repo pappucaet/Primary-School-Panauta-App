@@ -8698,7 +8698,7 @@ class DashboardScreen(Screen):
         except Exception as ex:
             self.popup('Print Error', f"Ledger PDF Compilation Failed: {str(ex)}")
     
-def load_photo_gallery_view(self):
+    def load_photo_gallery_view(self):
         self.content_area.clear_widgets()
         self.current_view = 'photo_gallery'
         is_mob = (kivy_platform != 'win')
@@ -8811,11 +8811,23 @@ def load_photo_gallery_view(self):
                 saved_url = ''
 
         pl = BoxLayout(orientation='vertical', padding=dp(14) if is_mob else 18, spacing=dp(10))
-        lbl = Label(text='Centralized School Data Sync (Google Drive Web App URL):\nAll teachers using the same Drive URL share live school data.', color=(1,1,1,1), font_size=sp(12.5) if is_mob else 13, size_hint_y=None, height=dp(55))
+        lbl = Label(
+            text='Centralized School Data Sync (Google Drive Web App URL):\nAll teachers using the same Drive URL share live school data.',
+            color=(1, 1, 1, 1),
+            font_size=sp(12.5) if is_mob else 13,
+            size_hint_y=None,
+            height=dp(55)
+        )
         lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(8), None)))
         pl.add_widget(lbl)
 
-        in_url = CustomText(text=saved_url, hint_text='Paste Google Apps Script Web App URL here...', multiline=False, size_hint_y=None, height=dp(44))
+        in_url = CustomText(
+            text=saved_url,
+            hint_text='Paste Google Apps Script Web App URL here...',
+            multiline=False,
+            size_hint_y=None,
+            height=dp(44)
+        )
         pl.add_widget(in_url)
 
         btn_push = Button(text='1. UPLOAD / BACKUP DATA TO GOOGLE DRIVE', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(13), size_hint_y=None, height=dp(44))
@@ -8823,52 +8835,124 @@ def load_photo_gallery_view(self):
         btn_cls = Button(text='CLOSE', background_color=(0.75, 0.15, 0.15, 1), bold=True, font_size=sp(13), size_hint_y=None, height=dp(42))
         pl.add_widget(btn_push); pl.add_widget(btn_pull); pl.add_widget(btn_cls)
 
-        pop = Popup(title='Google Drive Centralized Database Sync', content=pl, size_hint=(0.94, 0.65) if is_mob else (0.52, 0.55), background='', background_color=(0.14, 0.14, 0.14, 0.98))
+        pop = Popup(
+            title='Google Drive Centralized Database Sync',
+            content=pl,
+            size_hint=(0.94, 0.65) if is_mob else (0.52, 0.55),
+            background='',
+            background_color=(0.14, 0.14, 0.14, 0.98)
+        )
         btn_cls.bind(on_press=pop.dismiss)
 
-        db_files = ['Student_Database.xlsx', 'Marks_Database.xlsx', 'Attendance_Database.xlsx', 'DBT_Database.xlsx', 'MDM_Database.xlsx', 'MDM_Account_Database.xlsx', 'MDM_Ration_Stock_Database.xlsx', 'Staff_Database.xlsx', 'SMC_Members_Database.xlsx', 'Cook_Members_Database.xlsx', 'School_Grant_Database.xlsx', 'TC_Database.xlsx', 'Bulletin_Database.xlsx', 'Users_Database.xlsx', 'Photo_Gallery_Database.xlsx']
+        db_files = [
+            'Student_Database.xlsx', 'Marks_Database.xlsx', 'Attendance_Database.xlsx',
+            'DBT_Database.xlsx', 'MDM_Database.xlsx', 'MDM_Account_Database.xlsx',
+            'MDM_Ration_Stock_Database.xlsx', 'Staff_Database.xlsx', 'SMC_Members_Database.xlsx',
+            'Cook_Members_Database.xlsx', 'School_Grant_Database.xlsx', 'TC_Database.xlsx',
+            'Bulletin_Database.xlsx', 'Users_Database.xlsx', 'Photo_Gallery_Database.xlsx'
+        ]
+
+        def _send_post_follow_redirect(target_url, data_dict):
+            import json, ssl, urllib.request
+            ctx = ssl._create_unverified_context()
+            raw_bytes = json.dumps(data_dict).encode('utf-8')
+            req = urllib.request.Request(
+                target_url,
+                data=raw_bytes,
+                headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'},
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=25) as resp:
+                    return json.loads(resp.read().decode('utf-8'))
+            except urllib.error.HTTPError as he:
+                if he.code in (301, 302, 303, 307, 308) and he.headers.get('Location'):
+                    with urllib.request.urlopen(he.headers.get('Location'), context=ctx, timeout=25) as r2:
+                        return json.loads(r2.read().decode('utf-8'))
+                raise
 
         def _push_drive(x):
             url = in_url.text.strip()
             if not url.startswith('http'):
-                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!'); return
-            open(CFG_FILE, 'w').write(url)
+                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!')
+                return
             try:
-                import base64, json, urllib.request
-                payload = {'action': 'upload', 'files': {}}
-                for f in db_files:
-                    if os.path.exists(f):
-                        with open(f, 'rb') as fp:
-                            payload['files'][f] = base64.b64encode(fp.read()).decode('utf-8')
-                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=15)
-                pop.dismiss()
-                self.popup('Drive Backup Complete', f"{len(payload['files'])} Database files uploaded to Google Drive!")
-            except Exception as ex:
-                self.popup('Sync Error', f'Drive Upload Failed: {str(ex)}')
+                with open(CFG_FILE, 'w', encoding='utf-8') as f_w:
+                    f_w.write(url)
+            except Exception:
+                pass
+
+            btn_push.text = 'UPLOADING... PLEASE WAIT'
+            btn_push.disabled = True
+
+            def _bg_upload():
+                try:
+                    import base64
+                    files_payload = {}
+                    for f in db_files:
+                        if os.path.exists(f):
+                            with open(f, 'rb') as fp:
+                                files_payload[f] = base64.b64encode(fp.read()).decode('utf-8')
+                    _send_post_follow_redirect(url, {'action': 'upload', 'files': files_payload})
+                    def _ok_ui(dt):
+                        btn_push.text = '1. UPLOAD / BACKUP DATA TO GOOGLE DRIVE'
+                        btn_push.disabled = False
+                        pop.dismiss()
+                        self.popup('Drive Backup Complete', f"{len(files_payload)} Database files uploaded to Google Drive!")
+                    Clock.schedule_once(_ok_ui, 0)
+                except Exception as ex:
+                    err_txt = str(ex)
+                    def _err_ui(dt):
+                        btn_push.text = '1. UPLOAD / BACKUP DATA TO GOOGLE DRIVE'
+                        btn_push.disabled = False
+                        self.popup('Sync Error', f'Drive Upload Failed: {err_txt}')
+                    Clock.schedule_once(_err_ui, 0)
+
+            import threading
+            threading.Thread(target=_bg_upload, daemon=True).start()
 
         def _pull_drive(x):
             url = in_url.text.strip()
             if not url.startswith('http'):
-                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!'); return
-            open(CFG_FILE, 'w').write(url)
+                self.popup('URL Required', 'Please paste your valid Google Drive Apps Script Web App URL first!')
+                return
             try:
-                import base64, json, urllib.request
-                req = urllib.request.Request(url, data=json.dumps({'action': 'download'}).encode('utf-8'), headers={'Content-Type': 'application/json'})
-                resp = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8'))
-                files_map = resp.get('files', {})
-                for fname, b64_data in files_map.items():
-                    with open(fname, 'wb') as fp:
-                        fp.write(base64.b64decode(b64_data))
-                pop.dismiss()
-                self.popup('Drive Sync Complete', f"{len(files_map)} Database files synced from Google Drive!")
-            except Exception as ex:
-                self.popup('Sync Error', f'Drive Download Failed: {str(ex)}')
+                with open(CFG_FILE, 'w', encoding='utf-8') as f_w:
+                    f_w.write(url)
+            except Exception:
+                pass
+
+            btn_pull.text = 'DOWNLOADING... PLEASE WAIT'
+            btn_pull.disabled = True
+
+            def _bg_download():
+                try:
+                    import base64
+                    resp = _send_post_follow_redirect(url, {'action': 'download'})
+                    files_map = resp.get('files', {}) if isinstance(resp, dict) else {}
+                    for fname, b64_data in files_map.items():
+                        with open(fname, 'wb') as fp:
+                            fp.write(base64.b64decode(b64_data))
+                    def _ok_dl(dt):
+                        btn_pull.text = '2. DOWNLOAD / SYNC DATA FROM GOOGLE DRIVE'
+                        btn_pull.disabled = False
+                        pop.dismiss()
+                        self.popup('Drive Sync Complete', f"{len(files_map)} Database files synced from Google Drive!")
+                    Clock.schedule_once(_ok_dl, 0)
+                except Exception as ex:
+                    err_txt = str(ex)
+                    def _err_dl(dt):
+                        btn_pull.text = '2. DOWNLOAD / SYNC DATA FROM GOOGLE DRIVE'
+                        btn_pull.disabled = False
+                        self.popup('Sync Error', f'Drive Download Failed: {err_txt}')
+                    Clock.schedule_once(_err_dl, 0)
+
+            import threading
+            threading.Thread(target=_bg_download, daemon=True).start()
 
         btn_push.bind(on_press=_push_drive)
         btn_pull.bind(on_press=_pull_drive)
         pop.open()
-
 
 class SplashLoadingScreen(Screen):
     def __init__(self, **kwargs):
