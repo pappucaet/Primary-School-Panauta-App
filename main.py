@@ -7603,7 +7603,7 @@ def on_pre_enter(self, *args):
                 Paragraph("<b>PRIMARY SCHOOL PANAUTA</b>", sch_style),
                 Paragraph("BLOCK - WAZIRGANJ, DISTRICT - BUDAUN, 243601", sub_style),
                 Spacer(1, 2),
-                Paragraph("<b>ADMISSION FORM (प्रवेश पत्र)</b>", ParagraphStyle('FormT', fontName='Helvetica-Bold', fontSize=12, leading=14, textColor=OFFICIAL_BLUE, alignment=1)),
+                Paragraph("<b>STUDENT PROFILE </b>", ParagraphStyle('FormT', fontName='Helvetica-Bold', fontSize=12, leading=14, textColor=OFFICIAL_BLUE, alignment=1)),
                 Spacer(1, 1),
                 Paragraph("<b>SESSION - 2026-2027</b>", sub_style)
             ]
