@@ -8893,12 +8893,21 @@ class DashboardScreen(Screen):
                         if os.path.exists(f):
                             with open(f, 'rb') as fp:
                                 files_payload[f] = base64.b64encode(fp.read()).decode('utf-8')
+                    # सभी फ़ोटो फ़ोल्डर्स की फ़ोटो (<30KB) भी शामिल करें
+                    photo_dirs = ['Photos', 'Staff_Photos', 'SMC_Photos', 'Cook_Photos', 'User_Photos', 'School_Photo_Gallery', 'Bulletin_Uploads']
+                    for p_dir in photo_dirs:
+                        if os.path.exists(p_dir):
+                            for img_fn in os.listdir(p_dir):
+                                full_p = os.path.join(p_dir, img_fn)
+                                if os.path.isfile(full_p):
+                                    with open(full_p, 'rb') as fp:
+                                        files_payload[f"{p_dir}/{img_fn}"] = base64.b64encode(fp.read()).decode('utf-8')
                     _send_post_follow_redirect(url, {'action': 'upload', 'files': files_payload})
                     def _ok_ui(dt):
                         btn_push.text = '1. UPLOAD / BACKUP DATA TO GOOGLE DRIVE'
                         btn_push.disabled = False
                         pop.dismiss()
-                        self.popup('Drive Backup Complete', f"{len(files_payload)} Database files uploaded to Google Drive!")
+                        self.popup('Drive Backup Complete', f"{len(files_payload)} Database & Photo files uploaded to Google Drive!")
                     Clock.schedule_once(_ok_ui, 0)
                 except Exception as ex:
                     err_txt = str(ex)
@@ -8907,6 +8916,7 @@ class DashboardScreen(Screen):
                         btn_push.disabled = False
                         self.popup('Sync Error', f'Drive Upload Failed: {err_txt}')
                     Clock.schedule_once(_err_ui, 0)
+
 
             import threading
             threading.Thread(target=_bg_upload, daemon=True).start()
@@ -8931,8 +8941,15 @@ class DashboardScreen(Screen):
                     resp = _send_post_follow_redirect(url, {'action': 'download'})
                     files_map = resp.get('files', {}) if isinstance(resp, dict) else {}
                     for fname, b64_data in files_map.items():
-                        with open(fname, 'wb') as fp:
+                        if '/' in fname:
+                            sub_dir, base_fn = fname.split('/', 1)
+                            os.makedirs(sub_dir, exist_ok=True)
+                            target_save = os.path.join(sub_dir, base_fn)
+                        else:
+                            target_save = fname
+                        with open(target_save, 'wb') as fp:
                             fp.write(base64.b64decode(b64_data))
+
                     def _ok_dl(dt):
                         btn_pull.text = '2. DOWNLOAD / SYNC DATA FROM GOOGLE DRIVE'
                         btn_pull.disabled = False
