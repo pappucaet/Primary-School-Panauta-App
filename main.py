@@ -1251,7 +1251,7 @@ class DashboardScreen(Screen):
         Window.unbind(on_key_down=self.on_keyboard_down) if hasattr(Window, 'on_key_down') else None
         Window.bind(on_key_down=self.on_keyboard_down)
 
-def on_pre_enter(self, *args):
+        on_pre_enter(self, *args):
         u_info = getattr(App.get_running_app(), 'logged_in_user', None)
         if u_info and isinstance(u_info, dict):
             u_nm = str(u_info.get('Name', 'User')).strip()
@@ -1266,7 +1266,7 @@ def on_pre_enter(self, *args):
             if sch_nm and sch_nm.lower() != 'nan' and hasattr(self, 'lbl_dash_main'):
                 self.lbl_dash_main.text = f"{sch_nm} - {ud_code}" if ud_code else sch_nm
 
-    def logout_user_action(self):
+        logout_user_action(self):
         App.get_running_app().logged_in_user = None
         if not self.manager.has_screen('login'):
             self.manager.add_widget(LoginScreen(name='login'))
