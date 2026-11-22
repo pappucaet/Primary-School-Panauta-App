@@ -1180,7 +1180,7 @@ class DashboardScreen(Screen):
         super().__init__(**kwargs)
         is_mob = (kivy_platform != 'win')
         self.outer = BoxLayout(orientation='vertical')
-        self.header = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(68) if is_mob else 100, padding=dp(6) if is_mob else 10, spacing=dp(6) if is_mob else 10)
+        self.header = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(76) if is_mob else 100, padding=dp(5) if is_mob else 10, spacing=dp(5) if is_mob else 10)
         with self.header.canvas.before:
             Color(0.0, 0.35, 0.05, 1)
             self.hr = Rectangle(size=self.header.size, pos=self.header.pos)
@@ -1193,7 +1193,7 @@ class DashboardScreen(Screen):
             self.header.add_widget(BoxLayout(size_hint_x=0.09))
             
         tb = BoxLayout(orientation='vertical', size_hint_x=0.60 if is_mob else 0.72)
-        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(14) if is_mob else 36, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
+        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(12.5) if is_mob else 36, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
         lbl_sub = Label(text='BLOCK- WAZIRGANJ, DISTRICT- BUDAUN, 243601', font_size=sp(10.5) if is_mob else 18, bold=True, color=(0.9, 1, 0.9, 1), halign='center', valign='middle')
         tb.add_widget(self.lbl_dash_main); tb.add_widget(lbl_sub)
         self.lbl_dash_main.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
@@ -2857,10 +2857,14 @@ class DashboardScreen(Screen):
         lbl_hdr.bind(size=lbl_hdr.setter('text_size'))
         self.content_area.add_widget(lbl_hdr)
         
-        top_bar = GridLayout(cols=2 if is_mob else 6, size_hint_y=None, height=dp(155) if is_mob else 50, spacing=dp(8) if is_mob else 8, padding=(dp(5), dp(6)))
+        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(195) if is_mob else 50, spacing=dp(8) if is_mob else 8, padding=(dp(5), dp(6)))
         top_bar.add_widget(Label(text='Select Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'All Classes'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_class_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_class_spinner)
+
+        top_bar.add_widget(Label(text='Select Year:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
+        self.dbt_year_spinner = CustomSpinner(text='2026', values=('2026', '2027', '2028', '2029', '2030'), size_hint_y=None, height=dp(42) if is_mob else 36)
+        self.dbt_year_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_year_spinner)
         
         btn_dl_temp = Button(text='DOWNLOAD TEMPLATE', background_color=(0.1, 0.4, 0.6, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
         btn_dl_temp.bind(on_press=self.download_dbt_template_excel); top_bar.add_widget(btn_dl_temp)
@@ -2877,7 +2881,7 @@ class DashboardScreen(Screen):
         
         self.content_area.add_widget(top_bar)
         from kivy.uix.widget import Widget
-        self.content_area.add_widget(Widget(size_hint_y=None, height=dp(12) if is_mob else 6))
+        self.content_area.add_widget(Widget(size_hint_y=None, height=dp(14) if is_mob else 6))
         self.dbt_grid_box = BoxLayout(orientation='vertical', padding=5); self.content_area.add_widget(self.dbt_grid_box)
         
         al = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48) if is_mob else 45, spacing=10)
@@ -6737,9 +6741,9 @@ class DashboardScreen(Screen):
             except Exception as e: 
                 pass
  
-        db_scroll.add_widget(grid_table)
-        self.cook_main_layout.add_widget(db_scroll)
-        
+        table_scroll.add_widget(grid_table)
+        self.cook_main_layout.add_widget(table_scroll)
+
         self.cook_popup_focus_index = 0
         self.cook_seq = cook_master_tabs_list
         
@@ -6862,6 +6866,7 @@ class DashboardScreen(Screen):
             for idx, r in enumerate(filtered_rows, start=1):
                 raw_mob = str(r.get('Mobile No', '')).strip().split('.')
                 raw_adh = str(r.get('Aadhar No', '')).strip().split('.')
+
                 if raw_mob in ['', 'nan', 'None']: raw_mob = '---'
                 if raw_adh in ['', 'nan', 'None']: raw_adh = '---'
                 
@@ -9185,16 +9190,15 @@ if __name__ == '__main__':
 
         class CrashLogApp(App):
             def build(self):
-                sv = ScrollView()
+                sv = ScrollView(do_scroll_x=False, do_scroll_y=True)
                 lbl = Label(
-                    text=f"APP STARTUP LOG:\n\n{err_msg}",
+                    text=f"APP LOG:\n\n{err_msg}",
                     size_hint_y=None,
-                    text_size=(800, None),
-                    color=(1, 0.3, 0.3, 1)
+                    font_size=sp(13),
+                    text_size=(Window.width - dp(24), None),
+                    color=(1, 0.2, 0.2, 1)
                 )
                 lbl.bind(texture_size=lbl.setter('size'))
                 sv.add_widget(lbl)
                 return sv
-
-        CrashLogApp().run()
 
