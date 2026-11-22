@@ -173,13 +173,16 @@ def capture_mobile_camera_safe(save_path, on_success_callback, popup_func):
 def open_file_cross_platform(filepath, operation="open"):
     try:
         abs_path = os.path.abspath(filepath)
+        if not os.path.exists(abs_path):
+            return
+
         # Android पर फ़ाइल को सीधे फोन के Downloads/Primary_School_Panauta में भी कॉपी करें ताकि यूजर देख सके
-        if kivy_platform == 'android' and os.path.exists(abs_path):
+        if kivy_platform == 'android':
             try:
                 os.makedirs(PUBLIC_EXPORT_DIR, exist_ok=True)
                 pub_copy = os.path.join(PUBLIC_EXPORT_DIR, os.path.basename(abs_path))
                 if os.path.abspath(pub_copy) != abs_path:
-                    shutil.copy(abs_path, pub_copy)
+                    shutil.copyfile(abs_path, pub_copy)
                     abs_path = pub_copy
             except Exception:
                 pass
@@ -187,32 +190,102 @@ def open_file_cross_platform(filepath, operation="open"):
         if kivy_platform == 'win':
             os.startfile(abs_path, operation)
         elif kivy_platform == 'android':
-            from jnius import autoclass
-            StrictMode = autoclass('android.os.StrictMode')
-            VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
-            StrictMode.setVmPolicy(VmPolicyBuilder().build())
+            opened_ext = False
+            try:
+                from jnius import autoclass
+                StrictMode = autoclass('android.os.StrictMode')
+                VmPolicyBuilder = autoclass('android.os.StrictMode$VmPolicy$Builder')
+                StrictMode.setVmPolicy(VmPolicyBuilder().build())
 
-            PythonActivity = autoclass('org.kivy.android.PythonActivity')
-            Intent = autoclass('android.content.Intent')
-            Uri = autoclass('android.net.Uri')
-            File = autoclass('java.io.File')
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                Intent = autoclass('android.content.Intent')
+                Uri = autoclass('android.net.Uri')
+                File = autoclass('java.io.File')
 
-            intent = Intent(Intent.ACTION_VIEW)
-            uri = Uri.fromFile(File(abs_path))
-            if abs_path.lower().endswith('.pdf'):
-                mime = "application/pdf"
-            elif abs_path.lower().endswith(('.xlsx', '.xls')):
-                mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            else:
-                mime = "*/*"
-            intent.setDataAndType(uri, mime)
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            PythonActivity.mActivity.startActivity(Intent.createChooser(intent, "Open Report"))
+                intent = Intent(Intent.ACTION_VIEW)
+                uri = Uri.fromFile(File(abs_path))
+                if abs_path.lower().endswith('.pdf'):
+                    mime = "application/pdf"
+                elif abs_path.lower().endswith(('.xlsx', '.xls')):
+                    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                else:
+                    mime = "*/*"
+                intent.setDataAndType(uri, mime)
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                PythonActivity.mActivity.startActivity(intent)
+                opened_ext = True
+            except Exception:
+                opened_ext = False
+
+            # यदि बाहरी PDF ऐप न खुले, तो Android के बिल्ट-इन PdfRenderer से ऐप के अंदर ही PDF दिखाएं
+            if not opened_ext and abs_path.lower().endswith('.pdf'):
+                _show_android_internal_pdf_viewer(abs_path)
     except Exception as e:
         print("File Open Log:", str(e))
 
+
+def _show_android_internal_pdf_viewer(pdf_path):
+    try:
+        from jnius import autoclass
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.scrollview import ScrollView
+        from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.image import Image
+        from kivy.uix.button import Button
+
+        ParcelFileDescriptor = autoclass('android.os.ParcelFileDescriptor')
+        PdfRenderer = autoclass('android.graphics.pdf.PdfRenderer')
+        Bitmap = autoclass('android.graphics.Bitmap')
+        BitmapConfig = autoclass('android.graphics.Bitmap$Config')
+        FileOutputStream = autoclass('java.io.FileOutputStream')
+        CompressFormat = autoclass('android.graphics.Bitmap$CompressFormat')
+        File = autoclass('java.io.File')
+
+        pfd = ParcelFileDescriptor.open(File(pdf_path), ParcelFileDescriptor.MODE_READ_ONLY)
+        renderer = PdfRenderer(pfd)
+        page_count = renderer.getPageCount()
+
+        box = BoxLayout(orientation='vertical', padding=dp(8), spacing=dp(8))
+        sc = ScrollView(do_scroll_x=False, do_scroll_y=True)
+        pages_grid = GridLayout(cols=1, spacing=dp(8), size_hint_y=None)
+        pages_grid.bind(minimum_height=pages_grid.setter('height'))
+
+        for i in range(min(page_count, 10)):
+            page = renderer.openPage(i)
+            w = max(page.getWidth() * 2, 800)
+            h = max(page.getHeight() * 2, 1100)
+            bmp = Bitmap.createBitmap(w, h, BitmapConfig.ARGB_8888)
+            bmp.eraseColor(-1)
+            page.render(bmp, None, None, 1)
+            page.close()
+
+            img_out = os.path.join(DATA_DIR, f"pdf_prev_{i}.png")
+            fos = FileOutputStream(img_out)
+            bmp.compress(CompressFormat.PNG, 95, fos)
+            fos.close()
+
+            im = Image(source=img_out, size_hint_y=None, height=dp(480), allow_stretch=True, keep_ratio=True)
+            im.reload()
+            pages_grid.add_widget(im)
+
+        renderer.close()
+        pfd.close()
+
+        sc.add_widget(pages_grid)
+        box.add_widget(sc)
+        btn_c = Button(text='CLOSE PDF', size_hint_y=None, height=dp(44), background_color=(0.75, 0.15, 0.15, 1), bold=True)
+        box.add_widget(btn_c)
+        pop = Popup(title=os.path.basename(pdf_path), content=box, size_hint=(0.96, 0.90))
+        btn_c.bind(on_press=pop.dismiss)
+        pop.open()
+    except Exception as err:
+        print("Internal PDF Viewer Error:", str(err))
+
+
 LOGO_FILE = get_exe_safe_path('logo.png')
 BASIC_FILE = get_exe_safe_path('basic.png')
+
 
 def select_file_cross_platform(title_text, filters_list, on_file_selected_callback):
     if kivy_platform == 'win':
@@ -255,24 +328,37 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
                             mime_type = str(resolver.getType(uri) or "").lower()
                             input_stream = resolver.openInputStream(uri)
 
-                            ext = ".jpg" if is_only_image else ".pdf"
-                            uri_str = str(uri.toString()).lower()
-                            if "png" in mime_type or ".png" in uri_str: ext = ".png"
-                            elif "jpeg" in mime_type or "jpg" in mime_type or ".jpg" in uri_str or ".jpeg" in uri_str: ext = ".jpg"
-                            elif "pdf" in mime_type or ".pdf" in uri_str: ext = ".pdf"
-                            elif "sheet" in mime_type or "excel" in mime_type or ".xlsx" in uri_str: ext = ".xlsx"
-                            elif ".xls" in uri_str: ext = ".xls"
-                            elif "csv" in mime_type or ".csv" in uri_str: ext = ".csv"
-
                             import random
-                            raw_copy = os.path.join(DATA_DIR, f"picked_{random.randint(10000,99999)}{ext}")
-                            with open(raw_copy, "wb") as f_out:
+                            temp_raw = os.path.join(DATA_DIR, f"raw_pick_{random.randint(10000,99999)}.bin")
+                            with open(temp_raw, "wb") as f_out:
                                 buf = bytearray(8192)
                                 while True:
                                     n = input_stream.read(buf)
                                     if n <= 0: break
                                     f_out.write(bytes(buf[:n]))
                             input_stream.close()
+
+                            # फ़ाइल के शुरुआती बाइट्स (Magic Bytes) और MIME टाइप से सटीक एक्सटेंशन पहचानें
+                            with open(temp_raw, "rb") as f_chk:
+                                magic = f_chk.read(8)
+
+                            ext = ".jpg" if is_only_image else ".pdf"
+                            uri_str = str(uri.toString()).lower()
+                            if magic.startswith(b'%PDF') or "pdf" in mime_type or ".pdf" in uri_str:
+                                ext = ".pdf"
+                            elif magic.startswith(b'\x89PNG') or "png" in mime_type or ".png" in uri_str:
+                                ext = ".png"
+                            elif magic.startswith(b'\xff\xd8\xff') or "jpeg" in mime_type or "jpg" in mime_type or ".jpg" in uri_str or ".jpeg" in uri_str:
+                                ext = ".jpg"
+                            elif magic.startswith(b'PK') or "sheet" in mime_type or "excel" in mime_type or ".xlsx" in uri_str:
+                                ext = ".xlsx"
+                            elif ".xls" in uri_str:
+                                ext = ".xls"
+                            elif "csv" in mime_type or ".csv" in uri_str:
+                                ext = ".csv"
+
+                            raw_copy = os.path.join(DATA_DIR, f"picked_{random.randint(10000,99999)}{ext}")
+                            os.replace(temp_raw, raw_copy)
 
                             if ext in ['.jpg', '.jpeg', '.png']:
                                 comp_copy = os.path.join(DATA_DIR, f"comp_{random.randint(10000,99999)}.jpg")
@@ -288,6 +374,7 @@ def select_file_cross_platform(title_text, filters_list, on_file_selected_callba
             PythonActivity.mActivity.startActivityForResult(pick_intent, 9002)
         except Exception as e:
             print("Android Native Picker Error:", str(e))
+
 import os
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -1525,7 +1612,24 @@ class DashboardScreen(Screen):
                         real_p = pth if os.path.exists(pth) else os.path.join('Bulletin_Uploads', os.path.basename(pth))
                         if not os.path.exists(real_p):
                             self.popup('Alert', f'Notice file not found:\n{os.path.basename(pth)}'); return
-                        if real_p.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+
+                        # फ़ाइल के अंदर के असली हेडर (%PDF) से पहचानें कि यह PDF है या Image
+                        is_real_pdf = real_p.lower().endswith('.pdf')
+                        try:
+                            with open(real_p, 'rb') as f_chk:
+                                hdr_bytes = f_chk.read(5)
+                                if hdr_bytes.startswith(b'%PDF'):
+                                    is_real_pdf = True
+                        except Exception:
+                            pass
+
+                        if is_real_pdf:
+                            if not real_p.lower().endswith('.pdf'):
+                                pdf_fixed = real_p + '.pdf'
+                                shutil.copyfile(real_p, pdf_fixed)
+                                real_p = pdf_fixed
+                            open_file_cross_platform(real_p)
+                        elif real_p.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
                             box_z = BoxLayout(orientation='vertical', padding=10, spacing=10)
                             box_z.add_widget(Image(source=real_p, allow_stretch=True, keep_ratio=True, size_hint=(1, 0.88)))
                             bc = Button(text='CLOSE', size_hint=(1, 0.12), background_color=(0.75, 0.15, 0.15, 1), bold=True)
