@@ -3091,7 +3091,7 @@ class DashboardScreen(Screen):
                         }
             except: pass
             
-                if os.path.exists(EXCEL_FILE):
+        if os.path.exists(EXCEL_FILE):
             try:
                 df = pd.read_excel(EXCEL_FILE, dtype=str)
                 if 'CLASS' in df.columns:
@@ -3218,7 +3218,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=7, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(2, 2, 2, 10))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else
+        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else [55, 130, 135, 75, 120, 120, 125]
         grid_table.width = sum(col_w)
         grid_table.cols_minimum = {i: col_w[i] for i in range(7)}
         
