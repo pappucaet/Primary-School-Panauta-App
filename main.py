@@ -1406,9 +1406,15 @@ class DashboardScreen(Screen):
         pop.open()
 
 
-    def show_welcome(self):
+    def show_welcome(self, force_reload=False):
         self.content_area.clear_widgets()
         self.current_view = 'welcome'
+        if not force_reload and hasattr(self, '_cached_welcome_view') and self._cached_welcome_view is not None:
+            if self._cached_welcome_view.parent:
+                self._cached_welcome_view.parent.remove_widget(self._cached_welcome_view)
+            self.content_area.add_widget(self._cached_welcome_view)
+            return
+
         BULLETIN_DB = 'Bulletin_Database.xlsx'
         is_mob = (kivy_platform != 'win')
         
@@ -1577,7 +1583,7 @@ class DashboardScreen(Screen):
                             pd.concat([pd.read_excel(BULLETIN_DB, dtype=str), df_new], ignore_index=True).to_excel(BULLETIN_DB, index=False)
                         pop.dismiss()
                         self.popup('Live', 'Notice published successfully!')
-                        self.show_welcome()
+                        self.show_welcome(force_reload=True)
                         
                     btn_save_n.bind(on_press=commit_notice_to_excel)
                     pop.open()
@@ -1701,9 +1707,12 @@ class DashboardScreen(Screen):
         split_master_box.add_widget(right_bulletin_panel)
         if is_mob:
             outer_scroll.add_widget(split_master_box)
+            self._cached_welcome_view = outer_scroll
             self.content_area.add_widget(outer_scroll)
         else:
+            self._cached_welcome_view = split_master_box
             self.content_area.add_widget(split_master_box)
+
 
     def menu_nav(self, instance):
         if instance.text == 'HOME':
@@ -9325,5 +9334,6 @@ if __name__ == '__main__':
                 lbl.bind(texture_size=lbl.setter('size'))
                 sv.add_widget(lbl)
                 return sv
+
 
 
