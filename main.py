@@ -2983,31 +2983,26 @@ class DashboardScreen(Screen):
         lbl_hdr.bind(size=lbl_hdr.setter('text_size'))
         self.content_area.add_widget(lbl_hdr)
         
-        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(195) if is_mob else 50, spacing=dp(8) if is_mob else 8, padding=(dp(5), dp(6)))
+        # 🎛️ टॉप कंट्रोल पैनल (मोबाइल पर 2 कॉलम ताकि कोई बटन या स्पिनर न कटे)
+        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(145) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
         top_bar.add_widget(Label(text='Select Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
-        self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'All Classes'), size_hint_y=None, height=dp(42) if is_mob else 36)
+        self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_class_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_class_spinner)
-
+        
         top_bar.add_widget(Label(text='Select Year:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.dbt_year_spinner = CustomSpinner(text='2026', values=('2026', '2027', '2028', '2029', '2030'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_year_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_year_spinner)
         
-        btn_dl_temp = Button(text='DOWNLOAD TEMPLATE', background_color=(0.1, 0.4, 0.6, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
-        btn_dl_temp.bind(on_press=self.download_dbt_template_excel); top_bar.add_widget(btn_dl_temp)
+        btn_upload_dbt_excel = Button(text='📂 UPLOAD EXCEL', background_color=(0.1, 0.4, 0.8, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_upload_dbt_excel.bind(on_press=self.upload_department_dbt_excel)
+        top_bar.add_widget(btn_upload_dbt_excel)
         
-        btn_up_dept = Button(text='UPLOAD DBT EXCEL', background_color=(0.55, 0.25, 0.7, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
-        btn_up_dept.bind(on_press=self.upload_department_dbt_excel); top_bar.add_widget(btn_up_dept)
-
-        btn_print_school_dbt = Button(text='PRINT DBT PDF', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
-        btn_print_school_dbt.bind(on_press=lambda x: self.generate_school_consolidated_dbt_pdf()); top_bar.add_widget(btn_print_school_dbt)
-
-        btn_prerna_sync = Button(text='PRERNA OTP SYNC', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
-        btn_prerna_sync.bind(on_press=self.open_prerna_portal_dbt_sync)
-        top_bar.add_widget(btn_prerna_sync)
+        btn_print_school_dbt = Button(text='🖨️ PRINT REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_print_school_dbt.bind(on_press=lambda x: self.generate_school_consolidated_dbt_pdf())
+        top_bar.add_widget(btn_print_school_dbt)
         
         self.content_area.add_widget(top_bar)
-        from kivy.uix.widget import Widget
-        self.content_area.add_widget(Widget(size_hint_y=None, height=dp(14) if is_mob else 6))
+        
         self.dbt_grid_box = BoxLayout(orientation='vertical', padding=5); self.content_area.add_widget(self.dbt_grid_box)
         
         al = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(48) if is_mob else 45, spacing=10)
@@ -3023,13 +3018,16 @@ class DashboardScreen(Screen):
     def refresh_dbt_grid(self):
         self.dbt_grid_box.clear_widgets()
         self.dbt_fields = {}
+        dynamic_inputs = []
         is_mob = (kivy_platform != 'win')
         
         import os
         from kivy.graphics import Color, Rectangle
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
+        from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.label import Label
+        from kivy.uix.button import Button
         
         sel_class = self.dbt_class_spinner.text.strip().lower()
         sel_year = self.dbt_year_spinner.text.strip()
@@ -3042,6 +3040,7 @@ class DashboardScreen(Screen):
         col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else [55, 130, 135, 75, 120, 120, 125]
         if is_mob:
             grid_table.width = sum(col_w)
+        grid_table.cols_minimum = {i: col_w[i] for i in range(7)}
         
         with grid_table.canvas.before:
             Color(0.35, 0.35, 0.35, 1)
@@ -3065,7 +3064,7 @@ class DashboardScreen(Screen):
             is_bold = False
             if is_status:
                 is_bold = True
-                if 'SUCCESS' in str(txt).upper() or 'RECEIVED' in str(txt).upper(): t_col = (0.02, 0.45, 0.1, 1)
+                if 'SUCCESS' in str(txt).upper(): t_col = (0.02, 0.45, 0.1, 1)
                 else: t_col = (0.75, 0.1, 0.1, 1)
             lbl = Label(text=str(txt), color=t_col, bold=is_bold, font_size=sp(12) if is_mob else 11, size_hint_x=None if is_mob else 1, width=col_w[idx], size_hint_y=None, height=dp(38) if is_mob else 34, halign='center', valign='middle')
             with lbl.canvas.before:
@@ -3078,34 +3077,30 @@ class DashboardScreen(Screen):
         if os.path.exists(dbt_file):
             try:
                 df_old = pd.read_excel(dbt_file, dtype=str)
+                for col in df_old.columns: df_old[col] = df_old[col].astype(str).str.strip()
                 for _, r in df_old.iterrows():
-                    s_id = str(r.get('SR NO', '')).strip().split('.')
-                    r_class = str(r.get('Class', '')).strip().lower()
-                    r_year = str(r.get('Year', '')).strip()
-                    if (sel_class == 'all classes' or r_class == sel_class) and r_year == sel_year:
+                    s_id = str(r.get('SR NO', '')).strip()
+                    r_class = str(r.get('Class', '')).lower()
+                    r_year = str(r.get('Year', ''))
+                    if r_class == sel_class and r_year == sel_year:
                         saved_dbt_records[s_id] = {
-                            'status': str(r.get('Payment Status', 'Pending')).strip(),
-                            'acc': str(r.get('Account No', '---')).strip(),
-                            'bank': str(r.get('Bank Name', '---')).strip(),
-                            'tx': str(r.get('Transaction ID', '---')).strip()
+                            'status': str(r.get('Payment Status', 'Pending')),
+                            'acc': str(r.get('Account No', '---')),
+                            'bank': str(r.get('Bank Name', '---')),
+                            'tx': str(r.get('Transaction ID', '---'))
                         }
-            except Exception:
-                pass
+            except: pass
             
-        if os.path.exists(EXCEL_FILE):
+                if os.path.exists(EXCEL_FILE):
             try:
                 df = pd.read_excel(EXCEL_FILE, dtype=str)
-                target_cls_num = sel_class.replace('class', '').strip()
-                matched_rows = []
-                for idx, row in df.iterrows():
-                    r_cls_raw = str(row.get('CLASS', '')).strip().lower()
-                    r_cls_num = r_cls_raw.replace('class', '').strip()
-                    if sel_class == 'all classes' or r_cls_raw == sel_class or r_cls_num == target_cls_num:
-                        matched_rows.append((idx, row))
-
-                for r_idx, (idx, row) in enumerate(matched_rows):
+                if 'CLASS' in df.columns:
+                    df['CLASS_CLEAN'] = df['CLASS'].astype(str).str.strip().str.lower().str.replace('class', '').str.strip()
+                    df = df[(df['CLASS'].astype(str).str.strip().str.lower() == sel_class) | (df['CLASS_CLEAN'] == sel_class.replace('class','').strip())]
+                
+                for r_idx, (idx, row) in enumerate(df.iterrows()):
                     raw_sr = str(row.get('SR NO', '')).strip()
-                    sr_val = raw_sr.split('.') if '.' in raw_sr else raw_sr
+                    sr_val = raw_sr.split('.')[0] if '.' in raw_sr else raw_sr
                     if not raw_sr or raw_sr == 'nan': sr_val = str(idx+1)
                     
                     name_val = str(row.get('NAME', '')).strip().upper()
@@ -3113,6 +3108,8 @@ class DashboardScreen(Screen):
                     class_val = str(row.get('CLASS', '')).strip()
                     
                     record = saved_dbt_records.get(sr_val, {'status': 'Pending', 'acc': '---', 'bank': '---', 'tx': '---'})
+                    
+                    # पासबुक अल्टरनेटिंग रो शेडिंग कलर कस्टमाइजेशन
                     c_bg = (0.98, 0.98, 0.98, 1) if r_idx % 2 == 0 else (0.92, 0.94, 0.96, 1)
                     
                     grid_table.add_widget(make_dbt_data_cell(sr_val, c_bg, 0))
@@ -3127,11 +3124,9 @@ class DashboardScreen(Screen):
                         'name': name_val, 'father': father_val, 'class': class_val,
                         'status': record['status'], 'acc': record['acc'], 'bank': record['bank'], 'tx': record['tx']
                     }
-            except Exception as e:
-                print("DBT UI Loader Error:", str(e))
+            except Exception as e: print("DBT UI Loader Error:", str(e))
             
-        scroll.add_widget(grid_table)
-        self.dbt_grid_box.add_widget(scroll)
+        scroll.add_widget(grid_table); self.dbt_grid_box.add_widget(scroll)
         self.dbt_master_tabs = [self.dbt_class_spinner, self.dbt_year_spinner, self.btn_save_dbt, self.btn_back_dbt]
 
     def upload_department_dbt_excel(self, instance):
@@ -3223,7 +3218,7 @@ class DashboardScreen(Screen):
         grid_table = GridLayout(cols=7, spacing=(1, 1), size_hint_x=None if is_mob else 1, size_hint_y=None, padding=(2, 2, 2, 10))
         grid_table.bind(minimum_height=grid_table.setter('height'))
         
-        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else [55, 130, 135, 75, 120, 120, 125]
+        col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else
         grid_table.width = sum(col_w)
         grid_table.cols_minimum = {i: col_w[i] for i in range(7)}
         
@@ -3298,163 +3293,6 @@ class DashboardScreen(Screen):
             self.popup('Success', f"{cls} सत्र {yr} का DBT रिकॉर्ड बैंक विवरण के साथ सुरक्षित!")
             self.refresh_dbt_grid()
         except Exception as e: self.popup('Error', str(e))
-            
-    def open_prerna_portal_dbt_sync(self, instance):
-        is_mob = (kivy_platform != 'win')
-        pl = BoxLayout(orientation='vertical', padding=dp(14) if is_mob else 18, spacing=dp(10))
-
-        info_lbl = Label(
-            text="1. Click 'OPEN PRERNA PORTAL' below.\n2. Enter Mobile No. & Verify OTP on Prerna.\n3. Open 'DBT Report / Student Payment Status' & click Export Excel.\n4. Click 'AUTO-LOAD DOWNLOADED DBT DATA' below.",
-            color=(1, 1, 1, 1),
-            font_size=sp(13) if is_mob else 13,
-            halign='left',
-            valign='middle',
-            size_hint_y=None,
-            height=dp(115) if is_mob else 100
-        )
-        info_lbl.bind(size=lambda ins, val: setattr(ins, 'text_size', (ins.width - dp(8), None)))
-        pl.add_widget(info_lbl)
-
-        btn_open_web = Button(
-            text='1. OPEN PRERNA PORTAL (OTP LOGIN)',
-            background_color=(0.08, 0.42, 0.78, 1),
-            bold=True,
-            font_size=sp(13) if is_mob else 13,
-            size_hint_y=None,
-            height=dp(44) if is_mob else 40
-        )
-
-        btn_auto_fetch = Button(
-            text='2. AUTO-LOAD DOWNLOADED DBT DATA',
-            background_color=(0.05, 0.58, 0.25, 1),
-            bold=True,
-            font_size=sp(13) if is_mob else 13,
-            size_hint_y=None,
-            height=dp(44) if is_mob else 40
-        )
-
-        btn_close_p = Button(
-            text='CLOSE',
-            background_color=(0.75, 0.15, 0.15, 1),
-            bold=True,
-            font_size=sp(13) if is_mob else 13,
-            size_hint_y=None,
-            height=dp(42) if is_mob else 38
-        )
-
-        pl.add_widget(btn_open_web)
-        pl.add_widget(btn_auto_fetch)
-        pl.add_widget(btn_close_p)
-
-        pop_prerna = Popup(
-            title='Prerna Portal Live DBT Sync',
-            content=pl,
-            size_hint=(0.94, 0.62) if is_mob else (0.50, 0.52),
-            auto_dismiss=False,
-            background='',
-            background_color=(0.14, 0.14, 0.14, 0.98)
-        )
-        btn_close_p.bind(on_press=pop_prerna.dismiss)
-
-        def _launch_prerna_browser(x):
-            prerna_url = "https://prernaup.in"
-            try:
-                if kivy_platform == 'android':
-                    from jnius import autoclass
-                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-                    Intent = autoclass('android.content.Intent')
-                    Uri = autoclass('android.net.Uri')
-                    intent = Intent(Intent.ACTION_VIEW, Uri.parse(prerna_url))
-                    PythonActivity.mActivity.startActivity(intent)
-                else:
-                    import webbrowser
-                    webbrowser.open(prerna_url)
-            except Exception as e:
-                self.popup('Browser Alert', f'Please open https://prernaup.in in browser.\n({str(e)})')
-
-        def _auto_scan_and_load_dbt(x):
-            search_dirs = ['/storage/emulated/0/Download', '/storage/emulated/0/Downloads'] if kivy_platform == 'android' else [os.path.join(os.path.expanduser('~'), 'Downloads')]
-            latest_file = None
-            latest_mtime = 0
-
-            for d_path in search_dirs:
-                if os.path.exists(d_path):
-                    try:
-                        for fname in os.listdir(d_path):
-                            low_f = fname.lower()
-                            if low_f.endswith(('.xlsx', '.xls', '.csv')) and any(k in low_f for k in ['dbt', 'student', 'payment', 'prerna', 'beneficiary', 'pfms']):
-                                full_p = os.path.join(d_path, fname)
-                                mt = os.path.getmtime(full_p)
-                                if mt > latest_mtime:
-                                    latest_mtime = mt
-                                    latest_file = full_p
-                    except Exception:
-                        pass
-
-            if latest_file and os.path.exists(latest_file):
-                pop_prerna.dismiss()
-                self._import_dbt_file_direct(latest_file)
-            else:
-                pop_prerna.dismiss()
-                self.popup('Auto-Scan Info', 'No recent DBT file found in Downloads.\nPlease select the downloaded file manually.')
-                self.upload_department_dbt_excel(None)
-
-        btn_open_web.bind(on_press=_launch_prerna_browser)
-        btn_auto_fetch.bind(on_press=_auto_scan_and_load_dbt)
-        pop_prerna.open()
-
-    def _import_dbt_file_direct(self, file_path):
-        try:
-            dept_df = pd.read_csv(file_path, dtype=str) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str)
-            dept_df.columns = [str(c).strip() for c in dept_df.columns]
-            if not any('student sr' in c.lower() or 'sr no' in c.lower() for c in dept_df.columns):
-                dept_df = pd.read_csv(file_path, dtype=str, skiprows=1) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str, skiprows=1)
-                dept_df.columns = [str(c).strip() for c in dept_df.columns]
-
-            sr_col = next((c for c in dept_df.columns if 'student sr' in c.lower() or 'sr no' in c.lower()), None)
-            if not sr_col:
-                self.popup('Format Alert', "Prerna Excel me 'Student SR No.' column nahi mila!"); return
-
-            status_col = next((c for c in dept_df.columns if 'payment status' in c.lower() or 'status' in c.lower()), 'Payment Status')
-            acc_col = next((c for c in dept_df.columns if 'account no' in c.lower() or 'a/c' in c.lower()), 'Payment Account No')
-            tx_col = next((c for c in dept_df.columns if 'transaction id' in c.lower()), 'Transaction ID')
-            bank_col = next((c for c in dept_df.columns if 'bank name' in c.lower()), 'Payment Bank Name')
-
-            dept_lookup = {}
-            for _, d_row in dept_df.iterrows():
-                clean_d_sr = str(d_row.get(sr_col, '')).strip().split('.')[0]
-                if clean_d_sr and clean_d_sr.lower() != 'nan':
-                    dept_lookup[clean_d_sr] = d_row
-
-            match_counter = 0
-            for sr_id in list(self.dbt_fields.keys()):
-                clean_screen_sr = str(sr_id).strip().split('.')[0]
-                if clean_screen_sr in dept_lookup:
-                    match_counter += 1
-                    target_row = dept_lookup[clean_screen_sr]
-                    raw_acc = str(target_row.get(acc_col, '---')).strip()
-                    if 'e+' in raw_acc.lower():
-                        try:
-                            from decimal import Decimal
-                            raw_acc = f"{Decimal(raw_acc):.0f}"
-                        except Exception:
-                            pass
-                    p_status = str(target_row.get(status_col, 'Pending')).strip()
-                    p_tx = str(target_row.get(tx_col, '---')).strip()
-                    p_bank = str(target_row.get(bank_col, '---')).strip()
-
-                    self.dbt_fields[sr_id]['status'] = p_status if p_status and p_status != '-' else 'Pending'
-                    self.dbt_fields[sr_id]['acc'] = raw_acc if raw_acc and raw_acc not in ['nan', '-'] else '---'
-                    self.dbt_fields[sr_id]['tx'] = p_tx if p_tx and p_tx not in ['nan', '-'] else '---'
-                    self.dbt_fields[sr_id]['bank'] = p_bank if p_bank and p_bank not in ['nan', '-'] else '---'
-
-            if match_counter > 0:
-                self.rebuild_dbt_ui_from_memory()
-                self.popup('Prerna Sync Success', f"Prerna Portal se {match_counter} bachhon ka DBT data auto-load ho gaya!\nAb 'SAVE DBT DATA' dabakar lock karein.")
-            else:
-                self.popup('SR Mismatch', 'Selected Class ke bachhon ka SR No. Prerna file se match nahi hua.')
-        except Exception as ex:
-            self.popup('Prerna Sync Error', str(ex))
 
     def generate_school_consolidated_dbt_pdf(self):
         import os, re
