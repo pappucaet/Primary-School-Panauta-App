@@ -933,14 +933,36 @@ class LoginScreen(Screen):
     def _dispatch_sms_or_popup_otp(self, mobile_no, otp_code, purpose_label="Verification"):
         if kivy_platform == 'android':
             try:
-                from android.permissions import request_permissions, Permission
-                request_permissions([Permission.SEND_SMS])
+                from android.permissions import request_permissions, check_permission, Permission
                 from jnius import autoclass
-                SmsManager = autoclass('android.telephony.SmsManager')
-                SmsManager.getDefault().sendTextMessage(mobile_no, None, f"Primary School Panauta {purpose_label} OTP: {otp_code}", None, None)
-            except Exception:
-                pass
-        self._msg_popup(f'{purpose_label} OTP', f'6-Digit OTP for {mobile_no} is:\n\n{otp_code}')
+
+                def _send_real_sms():
+                    try:
+                        SmsManager = autoclass('android.telephony.SmsManager')
+                        sms_mgr = SmsManager.getDefault()
+                        msg_body = f"Primary School Panauta ERP {purpose_label} OTP is: {otp_code}. Do not share with anyone."
+                        sms_mgr.sendTextMessage(str(mobile_no), None, msg_body, None, None)
+                        Clock.schedule_once(lambda dt: self._msg_popup('OTP Sent', f'6-Digit OTP has been sent via SMS to +91-{mobile_no}.\nPlease check your Messages app.'), 0.2)
+                    except Exception as sms_err:
+                        err_s = str(sms_err)
+                        Clock.schedule_once(lambda dt: self._msg_popup('SMS Blocked by Phone', f'Android blocked direct SMS ({err_s}).\nGo to Phone Settings > Apps > Allow Restricted Settings, OR use Backup OTP: {otp_code}'), 0.2)
+
+                if not check_permission(Permission.SEND_SMS):
+                    def _on_sms_perm(perms, grants):
+                        if any(grants):
+                            _send_real_sms()
+                        else:
+                            self._msg_popup('Permission Denied', f'SMS permission denied.\nBackup OTP for {mobile_no}: {otp_code}')
+                    request_permissions([Permission.SEND_SMS], _on_sms_perm)
+                else:
+                    _send_real_sms()
+                return
+            except Exception as e:
+                self._msg_popup('SMS Info', f'Could not send SIM SMS ({str(e)}).\nBackup OTP: {otp_code}')
+                return
+
+        # Windows डेस्कटॉप पर परीक्षण के लिए
+        self._msg_popup(f'{purpose_label} OTP', f'Desktop Test Mode OTP for {mobile_no} is:\n\n{otp_code}')
 
     def _lookup_school_by_udise(self, udise_code):
         code = str(udise_code).strip()
@@ -1027,7 +1049,7 @@ class LoginScreen(Screen):
             otp_c = str(random.randint(100000, 999999))
             self._signup_otp_val = otp_c
             self._signup_otp_mob = mb
-            in_reg_otp.text = otp_c
+            #in_reg_otp.text = otp_c
             self._dispatch_sms_or_popup_otp(mb, otp_c, "Sign Up")
 
         btn_s_otp.bind(on_press=_send_signup_otp)
@@ -1143,7 +1165,7 @@ class LoginScreen(Screen):
             import random
             otp_c = str(random.randint(100000, 999999))
             self._login_otp_val = otp_c; self._login_otp_mob = mb; self._login_otp_user_row = found_user
-            in_code.text = otp_c
+            #in_code.text = otp_c
             self._dispatch_sms_or_popup_otp(mb, otp_c, "Login")
 
         def _verify_login_otp(x):
@@ -1206,7 +1228,7 @@ class LoginScreen(Screen):
             import random
             otp_code = str(random.randint(100000, 999999))
             self._generated_otp = otp_code; self._otp_target_mobile = mb
-            in_otp.text = otp_code
+            #in_otp.text = otp_code
             self._dispatch_sms_or_popup_otp(mb, otp_code, "Password Reset")
 
         def reset_password_action(ins):
@@ -3077,11 +3099,15 @@ class DashboardScreen(Screen):
         if os.path.exists(EXCEL_FILE):
             try:
                 df = pd.read_excel(EXCEL_FILE, dtype=str)
-                if 'CLASS' in df.columns:
-                    df['CLASS_CLEAN'] = df['CLASS'].astype(str).str.strip().str.lower().str.replace('class', '').str.strip()
-                    df = df[(df['CLASS'].astype(str).str.strip().str.lower() == sel_class) | (df['CLASS_CLEAN'] == sel_class.replace('class','').strip())]
-                
-                for r_idx, (idx, row) in enumerate(df.iterrows()):
+                target_cls_num = sel_class.replace('class', '').strip()
+                matched_rows = []
+                for idx, row in df.iterrows():
+                    r_cls_raw = str(row.get('CLASS', '')).strip().lower()
+                    r_cls_num = r_cls_raw.replace('class', '').strip()
+                    if sel_class == 'all classes' or r_cls_raw == sel_class or r_cls_num == target_cls_num:
+                        matched_rows.append((idx, row))
+
+                for r_idx, (idx, row) in enumerate(matched_rows):
                     raw_sr = str(row.get('SR NO', '')).strip()
                     sr_val = raw_sr.split('.')[0] if '.' in raw_sr else raw_sr
                     if not raw_sr or raw_sr == 'nan': sr_val = str(idx+1)
