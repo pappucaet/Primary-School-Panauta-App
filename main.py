@@ -933,33 +933,21 @@ class LoginScreen(Screen):
     def _dispatch_sms_or_popup_otp(self, mobile_no, otp_code, purpose_label="Verification"):
         if kivy_platform == 'android':
             try:
-                from android.permissions import request_permissions, check_permission, Permission
-                from jnius import autoclass
+                from android.permissions import check_permission, Permission
+                if check_permission(Permission.SEND_SMS):
+                    from jnius import autoclass
+                    SmsManager = autoclass('android.telephony.SmsManager')
+                    SmsManager.getDefault().sendTextMessage(
+                        str(mobile_no), None,
+                        f"Primary School Panauta ERP {purpose_label} OTP: {otp_code}", None, None
+                    )
+            except Exception:
+                pass
 
-                def _send_real_sms():
-                    try:
-                        SmsManager = autoclass('android.telephony.SmsManager')
-                        sms_mgr = SmsManager.getDefault()
-                        msg_body = f"Primary School Panauta ERP {purpose_label} OTP is: {otp_code}. Do not share with anyone."
-                        sms_mgr.sendTextMessage(str(mobile_no), None, msg_body, None, None)
-                        Clock.schedule_once(lambda dt: self._msg_popup('OTP Sent', f'6-Digit OTP has been sent via SMS to +91-{mobile_no}.\nPlease check your Messages app.'), 0.2)
-                    except Exception as sms_err:
-                        err_s = str(sms_err)
-                        Clock.schedule_once(lambda dt: self._msg_popup('SMS Blocked by Phone', f'Android blocked direct SMS ({err_s}).\nGo to Phone Settings > Apps > Allow Restricted Settings, OR use Backup OTP: {otp_code}'), 0.2)
-
-                if not check_permission(Permission.SEND_SMS):
-                    def _on_sms_perm(perms, grants):
-                        if any(grants):
-                            _send_real_sms()
-                        else:
-                            self._msg_popup('Permission Denied', f'SMS permission denied.\nBackup OTP for {mobile_no}: {otp_code}')
-                    request_permissions([Permission.SEND_SMS], _on_sms_perm)
-                else:
-                    _send_real_sms()
-                return
-            except Exception as e:
-                self._msg_popup('SMS Info', f'Could not send SIM SMS ({str(e)}).\nBackup OTP: {otp_code}')
-                return
+        self._msg_popup(
+            f'{purpose_label} OTP',
+            f'Mobile: {mobile_no}\n\nYour 6-Digit OTP is:\n[  {otp_code}  ]\n\n(OTP has been auto-filled in the box below)'
+        )
 
         # Windows डेस्कटॉप पर परीक्षण के लिए
         self._msg_popup(f'{purpose_label} OTP', f'Desktop Test Mode OTP for {mobile_no} is:\n\n{otp_code}')
@@ -1049,7 +1037,7 @@ class LoginScreen(Screen):
             otp_c = str(random.randint(100000, 999999))
             self._signup_otp_val = otp_c
             self._signup_otp_mob = mb
-            #in_reg_otp.text = otp_c
+            in_reg_otp.text = otp_c
             self._dispatch_sms_or_popup_otp(mb, otp_c, "Sign Up")
 
         btn_s_otp.bind(on_press=_send_signup_otp)
@@ -1165,7 +1153,7 @@ class LoginScreen(Screen):
             import random
             otp_c = str(random.randint(100000, 999999))
             self._login_otp_val = otp_c; self._login_otp_mob = mb; self._login_otp_user_row = found_user
-            #in_code.text = otp_c
+            in_code.text = otp_c
             self._dispatch_sms_or_popup_otp(mb, otp_c, "Login")
 
         def _verify_login_otp(x):
@@ -1228,7 +1216,7 @@ class LoginScreen(Screen):
             import random
             otp_code = str(random.randint(100000, 999999))
             self._generated_otp = otp_code; self._otp_target_mobile = mb
-            #in_otp.text = otp_code
+            in_otp.text = otp_code
             self._dispatch_sms_or_popup_otp(mb, otp_code, "Password Reset")
 
         def reset_password_action(ins):
@@ -2993,7 +2981,7 @@ class DashboardScreen(Screen):
         self.content_area.add_widget(lbl_hdr)
         
         # 🎛️ टॉप कंट्रोल पैनल (मोबाइल पर 2 कॉलम ताकि कोई बटन या स्पिनर न कटे)
-        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(190) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
+        top_bar = GridLayout(cols=2 if is_mob else 7, size_hint_y=None, height=dp(200) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=5)
         top_bar.add_widget(Label(text='Select Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.dbt_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_class_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_class_spinner)
@@ -3002,11 +2990,11 @@ class DashboardScreen(Screen):
         self.dbt_year_spinner = CustomSpinner(text='2026', values=('2026', '2027', '2028', '2029', '2030'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.dbt_year_spinner.bind(text=lambda sp, tx: self.refresh_dbt_grid()); top_bar.add_widget(self.dbt_year_spinner)
         
-        btn_upload_dbt_excel = Button(text='📂 UPLOAD EXCEL', background_color=(0.1, 0.4, 0.8, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_upload_dbt_excel = Button(text='UPLOAD EXCEL', background_color=(0.1, 0.4, 0.8, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
         btn_upload_dbt_excel.bind(on_press=self.upload_department_dbt_excel)
         top_bar.add_widget(btn_upload_dbt_excel)
         
-        btn_print_school_dbt = Button(text='🖨️ PRINT REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
+        btn_print_school_dbt = Button(text='PRINT REPORT', background_color=(0.85, 0.45, 0.0, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
         btn_prerna_sync = Button(text='PRERNA OTP SYNC', background_color=(0.05, 0.55, 0.25, 1), bold=True, font_size=sp(12) if is_mob else 11, size_hint_y=None, height=dp(42) if is_mob else 36)
         btn_prerna_sync.bind(on_press=self.open_prerna_portal_dbt_sync)
         top_bar.add_widget(btn_prerna_sync)
@@ -9334,6 +9322,7 @@ if __name__ == '__main__':
                 lbl.bind(texture_size=lbl.setter('size'))
                 sv.add_widget(lbl)
                 return sv
+
 
 
 
