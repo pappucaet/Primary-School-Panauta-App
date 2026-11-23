@@ -3023,16 +3023,13 @@ class DashboardScreen(Screen):
     def refresh_dbt_grid(self):
         self.dbt_grid_box.clear_widgets()
         self.dbt_fields = {}
-        dynamic_inputs = []
         is_mob = (kivy_platform != 'win')
         
         import os
         from kivy.graphics import Color, Rectangle
         from kivy.uix.scrollview import ScrollView
         from kivy.uix.gridlayout import GridLayout
-        from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.label import Label
-        from kivy.uix.button import Button
         
         sel_class = self.dbt_class_spinner.text.strip().lower()
         sel_year = self.dbt_year_spinner.text.strip()
@@ -3045,7 +3042,6 @@ class DashboardScreen(Screen):
         col_w = [dp(60), dp(150), dp(150), dp(85), dp(130), dp(140), dp(145)] if is_mob else [55, 130, 135, 75, 120, 120, 125]
         if is_mob:
             grid_table.width = sum(col_w)
-        grid_table.cols_minimum = {i: col_w[i] for i in range(7)}
         
         with grid_table.canvas.before:
             Color(0.35, 0.35, 0.35, 1)
@@ -3069,7 +3065,7 @@ class DashboardScreen(Screen):
             is_bold = False
             if is_status:
                 is_bold = True
-                if 'SUCCESS' in str(txt).upper(): t_col = (0.02, 0.45, 0.1, 1)
+                if 'SUCCESS' in str(txt).upper() or 'RECEIVED' in str(txt).upper(): t_col = (0.02, 0.45, 0.1, 1)
                 else: t_col = (0.75, 0.1, 0.1, 1)
             lbl = Label(text=str(txt), color=t_col, bold=is_bold, font_size=sp(12) if is_mob else 11, size_hint_x=None if is_mob else 1, width=col_w[idx], size_hint_y=None, height=dp(38) if is_mob else 34, halign='center', valign='middle')
             with lbl.canvas.before:
@@ -3082,19 +3078,19 @@ class DashboardScreen(Screen):
         if os.path.exists(dbt_file):
             try:
                 df_old = pd.read_excel(dbt_file, dtype=str)
-                for col in df_old.columns: df_old[col] = df_old[col].astype(str).str.strip()
                 for _, r in df_old.iterrows():
-                    s_id = str(r.get('SR NO', '')).strip()
-                    r_class = str(r.get('Class', '')).lower()
-                    r_year = str(r.get('Year', ''))
-                    if r_class == sel_class and r_year == sel_year:
+                    s_id = str(r.get('SR NO', '')).strip().split('.')
+                    r_class = str(r.get('Class', '')).strip().lower()
+                    r_year = str(r.get('Year', '')).strip()
+                    if (sel_class == 'all classes' or r_class == sel_class) and r_year == sel_year:
                         saved_dbt_records[s_id] = {
-                            'status': str(r.get('Payment Status', 'Pending')),
-                            'acc': str(r.get('Account No', '---')),
-                            'bank': str(r.get('Bank Name', '---')),
-                            'tx': str(r.get('Transaction ID', '---'))
+                            'status': str(r.get('Payment Status', 'Pending')).strip(),
+                            'acc': str(r.get('Account No', '---')).strip(),
+                            'bank': str(r.get('Bank Name', '---')).strip(),
+                            'tx': str(r.get('Transaction ID', '---')).strip()
                         }
-            except: pass
+            except Exception:
+                pass
             
         if os.path.exists(EXCEL_FILE):
             try:
@@ -3109,7 +3105,7 @@ class DashboardScreen(Screen):
 
                 for r_idx, (idx, row) in enumerate(matched_rows):
                     raw_sr = str(row.get('SR NO', '')).strip()
-                    sr_val = raw_sr.split('.')[0] if '.' in raw_sr else raw_sr
+                    sr_val = raw_sr.split('.') if '.' in raw_sr else raw_sr
                     if not raw_sr or raw_sr == 'nan': sr_val = str(idx+1)
                     
                     name_val = str(row.get('NAME', '')).strip().upper()
@@ -3117,8 +3113,6 @@ class DashboardScreen(Screen):
                     class_val = str(row.get('CLASS', '')).strip()
                     
                     record = saved_dbt_records.get(sr_val, {'status': 'Pending', 'acc': '---', 'bank': '---', 'tx': '---'})
-                    
-                    # पासबुक अल्टरनेटिंग रो शेडिंग कलर कस्टमाइजेशन
                     c_bg = (0.98, 0.98, 0.98, 1) if r_idx % 2 == 0 else (0.92, 0.94, 0.96, 1)
                     
                     grid_table.add_widget(make_dbt_data_cell(sr_val, c_bg, 0))
@@ -3133,9 +3127,11 @@ class DashboardScreen(Screen):
                         'name': name_val, 'father': father_val, 'class': class_val,
                         'status': record['status'], 'acc': record['acc'], 'bank': record['bank'], 'tx': record['tx']
                     }
-            except Exception as e: print("DBT UI Loader Error:", str(e))
+            except Exception as e:
+                print("DBT UI Loader Error:", str(e))
             
-        scroll.add_widget(grid_table); self.dbt_grid_box.add_widget(scroll)
+        scroll.add_widget(grid_table)
+        self.dbt_grid_box.add_widget(scroll)
         self.dbt_master_tabs = [self.dbt_class_spinner, self.dbt_year_spinner, self.btn_save_dbt, self.btn_back_dbt]
 
     def upload_department_dbt_excel(self, instance):
