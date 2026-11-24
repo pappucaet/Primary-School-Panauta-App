@@ -1277,7 +1277,7 @@ class DashboardScreen(Screen):
         super().__init__(**kwargs)
         is_mob = (kivy_platform != 'win')
         self.outer = BoxLayout(orientation='vertical')
-        self.header = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(76) if is_mob else 100, padding=dp(5) if is_mob else 10, spacing=dp(5) if is_mob else 10)
+        self.header = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(82) if is_mob else 100, padding=dp(5) if is_mob else 10, spacing=dp(5) if is_mob else 10)
         with self.header.canvas.before:
             Color(0.0, 0.35, 0.05, 1)
             self.hr = Rectangle(size=self.header.size, pos=self.header.pos)
@@ -1290,7 +1290,7 @@ class DashboardScreen(Screen):
             self.header.add_widget(BoxLayout(size_hint_x=0.09))
             
         tb = BoxLayout(orientation='vertical', size_hint_x=0.60 if is_mob else 0.72)
-        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(12.5) if is_mob else 36, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
+        self.lbl_dash_main = Label(text='PRIMARY SCHOOL PANAUTA - 09191204201', font_size=sp(12) if is_mob else 36, bold=True, color=(1, 0.9, 0, 1), halign='center', valign='middle')
         lbl_sub = Label(text='BLOCK- WAZIRGANJ, DISTRICT- BUDAUN, 243601', font_size=sp(10.5) if is_mob else 18, bold=True, color=(0.9, 1, 0.9, 1), halign='center', valign='middle')
         tb.add_widget(self.lbl_dash_main); tb.add_widget(lbl_sub)
         self.lbl_dash_main.bind(size=lambda ins, val: setattr(ins, 'text_size', ins.size))
@@ -3100,12 +3100,14 @@ class DashboardScreen(Screen):
                 
                 for r_idx, (idx, row) in enumerate(df.iterrows()):
                     raw_sr = str(row.get('SR NO', '')).strip()
-                    sr_val = raw_sr.split('.')[0] if '.' in raw_sr else raw_sr
-                    if not raw_sr or raw_sr == 'nan': sr_val = str(idx+1)
+                    sr_val = raw_sr.split('.')[0].strip() if '.' in raw_sr else raw_sr
+                    if not sr_val or sr_val.lower() in ['nan', 'none']:
+                        sr_val = str(idx + 1)
                     
                     name_val = str(row.get('NAME', '')).strip().upper()
                     father_val = str(row.get("FATHER'S NAME", '')).strip().upper()
                     class_val = str(row.get('CLASS', '')).strip()
+
                     
                     record = saved_dbt_records.get(sr_val, {'status': 'Pending', 'acc': '---', 'bank': '---', 'tx': '---'})
                     
@@ -3157,23 +3159,27 @@ class DashboardScreen(Screen):
                 tx_col = next((c for c in dept_df.columns if 'transaction id' in c.lower()), 'Transaction ID')
                 bank_col = next((c for c in dept_df.columns if 'bank name' in c.lower()), 'Payment Bank Name')
                 
-                dept_df = dept_df.dropna(subset=[sr_col])
+                def _norm_sr(val):
+                    s = str(val).strip().split('.') if '.' in str(val) else str(val).strip()
+                    s = s.strip()
+                    return (s.lstrip('0') or '0') if s.isdigit() else s.upper()
+
                 dept_lookup = {}
                 for _, d_row in dept_df.iterrows():
                     raw_d_sr = str(d_row.get(sr_col, '')).strip()
-                    clean_d_sr = raw_d_sr.split('.')[0] if '.' in raw_d_sr else raw_d_sr
-                    if clean_d_sr and clean_d_sr.lower() != 'nan':
+                    if not raw_d_sr or raw_d_sr.lower() in ['nan', 'none']:
+                        continue
+                    clean_d_sr = _norm_sr(raw_d_sr)
+                    if clean_d_sr:
                         dept_lookup[clean_d_sr] = d_row
                 
                 match_counter = 0
                 for sr_id in list(self.dbt_fields.keys()):
-                    raw_scr_sr = str(sr_id).strip()
-                    clean_screen_sr = raw_scr_sr.split('.')[0] if '.' in raw_scr_sr else raw_scr_sr
-                    
+                    clean_screen_sr = _norm_sr(sr_id)
                     if clean_screen_sr in dept_lookup:
                         match_counter += 1
                         target_row = dept_lookup[clean_screen_sr]
-                        
+
                         raw_acc = str(target_row.get(acc_col, '---')).strip()
                         if 'e+' in raw_acc.lower():
                             try:
@@ -3568,7 +3574,7 @@ class DashboardScreen(Screen):
         lbl_hw.bind(size=lbl_hw.setter('text_size'))
         self.content_area.add_widget(lbl_hw)
         
-        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(210) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=(dp(5), dp(6)))
+        top_bar = GridLayout(cols=2 if is_mob else 8, size_hint_y=None, height=dp(220) if is_mob else 50, spacing=dp(8) if is_mob else 10, padding=(dp(5), dp(6)))
         top_bar.add_widget(Label(text='Class:', color=(0,0,0,1), bold=True, font_size=sp(13) if is_mob else 13))
         self.hw_class_spinner = CustomSpinner(text='Class 1', values=('Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5'), size_hint_y=None, height=dp(42) if is_mob else 36)
         self.hw_class_spinner.bind(text=lambda sp, tx: self.refresh_hw_grid()); top_bar.add_widget(self.hw_class_spinner)
@@ -7281,13 +7287,21 @@ class DashboardScreen(Screen):
             if not file_path:
                 return
             try:
-                df_up = pd.read_excel(file_path, dtype=str)
-                
-                # वैलिडेशन सुरक्षा: टीसी नंबर या कम से कम प्रवेशांक होना कड़ाई से अनिवार्य है
-                if 'TRANSFER CERTIFICATE NUMBER' not in df_up.columns and 'ADMISSION NUMBER (SR NO)' not in df_up.columns:
-                    self.popup('Validation Error', "Invalid Template Format!\n\nExcel must contain 'TRANSFER CERTIFICATE NUMBER' or 'ADMISSION NUMBER (SR NO)' columns.")
+                df_up = pd.read_csv(file_path, dtype=str) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str)
+                df_up.columns = [str(c).strip().upper() for c in df_up.columns]
+
+                # पहली 5 पंक्तियों में असली हेडर पंक्ति खोजें
+                for skip_r in range(1, 5):
+                    if any(k in c for c in df_up.columns for k in ['TRANSFER CERTIFICATE', 'ADMISSION NUMBER', 'SR NO', "STUDENT'S NAME", 'NAME']):
+                        break
+                    df_up = pd.read_csv(file_path, dtype=str, skiprows=skip_r) if file_path.lower().endswith('.csv') else pd.read_excel(file_path, dtype=str, skiprows=skip_r)
+                    df_up.columns = [str(c).strip().upper() for c in df_up.columns]
+
+                has_valid_col = any(k in c for c in df_up.columns for k in ['TRANSFER CERTIFICATE', 'ADMISSION NUMBER', 'SR NO'])
+                if not has_valid_col:
+                    self.popup('Validation Error', "Invalid Template Format!\n\nExcel must contain 'TRANSFER CERTIFICATE NUMBER' or 'ADMISSION NUMBER (SR NO)' or 'SR NO' columns.")
                     return
-                    
+
                 tc_file = 'TC_Database.xlsx'
                 cols_tc = [
                     'TRANSFER CERTIFICATE NUMBER', 'CASTE', 'ADMISSION NUMBER (SR NO)', 'RELION',
@@ -7297,43 +7311,86 @@ class DashboardScreen(Screen):
                     'AADHAR NUMBER', 'HIGHEST EXAM PASSED', 'DATE OF BIRTH (IN NUMBERS)', 'EXAM PASSED DATE',
                     'DATE OF BIRTH (IN WORDS)', 'LANGUAGE', "FATHER'S NAME", 'OCCUPATION', "MOTHER'S NAME"
                 ]
-                
-                # स्ट्रिंग्स को साफ़ करना (Clean Cases)
-                for c in df_up.columns:
-                    df_up[c] = df_up[c].astype(str).str.strip().str.replace('nan', '', case=False).str.replace(r'\.0$', '', regex=True)
-                    
-                if not os.path.exists(tc_file):
+
+                def _clean_v(val):
+                    s = str(val).strip()
+                    if s.lower() in ['nan', 'none', 'nat']:
+                        return ""
+                    if s.endswith('.0'):
+                        s = s[:-2]
+                    return s
+
+                new_clean_rows = []
+                new_tc_nos = set()
+                new_sr_nos = set()
+
+                for _, r_raw in df_up.iterrows():
+                    r_map = {str(k).strip().upper(): _clean_v(v) for k, v in dict(r_raw).items()}
+                    row_out = {col: "" for col in cols_tc}
+
                     for col in cols_tc:
-                        if col not in df_up.columns: df_up[col] = ""
-                    df_up[cols_tc].to_excel(tc_file, index=False)
-                else:
+                        if col in r_map and r_map[col]:
+                            row_out[col] = r_map[col]
+
+                    # यदि Student_Database.xlsx अपलोड की गई हो तो उसके कॉलम भी मैप करें
+                    if not row_out['ADMISSION NUMBER (SR NO)'] and r_map.get('SR NO'):
+                        row_out['ADMISSION NUMBER (SR NO)'] = r_map['SR NO']
+                    if not row_out["STUDENT'S NAME"] and r_map.get('NAME'):
+                        row_out["STUDENT'S NAME"] = r_map['NAME']
+                    if not row_out['DATE OF BIRTH (IN NUMBERS)'] and r_map.get('DOB'):
+                        row_out['DATE OF BIRTH (IN NUMBERS)'] = r_map['DOB']
+                    if not row_out['AADHAR NUMBER'] and r_map.get('AADHAR'):
+                        row_out['AADHAR NUMBER'] = r_map['AADHAR']
+                    if not row_out['PEN NO'] and r_map.get('PEN'):
+                        row_out['PEN NO'] = r_map['PEN']
+                    if not row_out['APAAR ID'] and r_map.get('APAAR'):
+                        row_out['APAAR ID'] = r_map['APAAR']
+                    if not row_out['RELION'] and r_map.get('RELIGION'):
+                        row_out['RELION'] = r_map['RELIGION']
+                    if not row_out['SCHOOL NAME']:
+                        row_out['SCHOOL NAME'] = 'PRIMARY SCHOOL PANAUTA'
+
+                    if not row_out['TRANSFER CERTIFICATE NUMBER'] and not row_out['ADMISSION NUMBER (SR NO)']:
+                        continue
+
+                    if row_out['TRANSFER CERTIFICATE NUMBER']:
+                        new_tc_nos.add(row_out['TRANSFER CERTIFICATE NUMBER'])
+                    if row_out['ADMISSION NUMBER (SR NO)']:
+                        new_sr_nos.add(row_out['ADMISSION NUMBER (SR NO)'])
+                    new_clean_rows.append(row_out)
+
+                if not new_clean_rows:
+                    self.popup('Alert', 'Excel file me koi valid TC ya SR NO record nahi mila!')
+                    return
+
+                kept_old_rows = []
+                if os.path.exists(tc_file):
                     df_old = pd.read_excel(tc_file, dtype=str)
-                    for c in df_old.columns:
-                        df_old[c] = df_old[c].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).str.replace('nan', '', case=False)
-                    
-                    # टीसी नंबर के आधार पर ओवरराइट/ड्रॉप फ़िल्टर लॉक
-                    if 'TRANSFER CERTIFICATE NUMBER' in df_up.columns and 'TRANSFER CERTIFICATE NUMBER' in df_old.columns:
-                        df_old = df_old.drop(df_old[df_old['TRANSFER CERTIFICATE NUMBER'].isin(df_up['TRANSFER CERTIFICATE NUMBER'])].index)
-                    elif 'ADMISSION NUMBER (SR NO)' in df_up.columns and 'ADMISSION NUMBER (SR NO)' in df_old.columns:
-                        df_old = df_old.drop(df_old[df_old['ADMISSION NUMBER (SR NO)'].isin(df_up['ADMISSION NUMBER (SR NO)'])].index)
-                        
-                    df_merged = pd.concat([df_old, df_up], ignore_index=True)
-                    for col in cols_tc:
-                        if col not in df_merged.columns: df_merged[col] = ""
-                        
-                    df_merged[cols_tc].to_excel(tc_file, index=False)
-                    
-                self.popup('Success', f"🎉 BULK TC DATA LOADED SUCCESSFULLY!\n\nTotal {len(df_up)} Transfer Certificate records merged into 'TC_Database.xlsx'.")
-                if hasattr(self, 'reset_tc_fields_action'): self.reset_tc_fields_action(None)
+                    for _, r_old in df_old.iterrows():
+                        old_map = {str(k).strip().upper(): _clean_v(v) for k, v in dict(r_old).items()}
+                        old_tc = old_map.get('TRANSFER CERTIFICATE NUMBER', '')
+                        old_sr = old_map.get('ADMISSION NUMBER (SR NO)', '')
+                        if old_tc and old_tc in new_tc_nos:
+                            continue
+                        if not old_tc and old_sr and old_sr in new_sr_nos:
+                            continue
+                        row_kept = {col: old_map.get(col, '') for col in cols_tc}
+                        kept_old_rows.append(row_kept)
+
+                final_all_rows = kept_old_rows + new_clean_rows
+                pd.DataFrame(final_all_rows, columns=cols_tc).to_excel(tc_file, index=False)
+
+                self.popup('Success', f"BULK TC DATA LOADED SUCCESSFULLY!\n\nTotal {len(new_clean_rows)} Transfer Certificate records merged into 'TC_Database.xlsx'.")
+                if hasattr(self, 'reset_tc_fields_action'):
+                    self.reset_tc_fields_action(None)
             except Exception as ex:
                 self.popup('Upload Interrupted', f"TC Excel import crashed: {str(ex)}")
 
         select_file_cross_platform(
             "Select TC Excel File",
-            [("Excel Files", "*.xlsx *.xls")],
+            [("Excel & CSV Files", "*.xlsx *.xls *.csv")],
             process_tc_excel_file
         )
-
     def reset_tc_fields_action(self, instance):
         for k, v in self.tc_fields.items():
             if not isinstance(v, Spinner): v.text = ''
